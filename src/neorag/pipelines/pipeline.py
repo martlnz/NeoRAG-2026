@@ -19,6 +19,9 @@ v3:
   - Chép nguyên văn cụm then chốt (số + đơn vị, tên ban/giải, biệt danh tiếng Anh); nêu link khi hỏi kênh.
 v3.1 (chống lỗi, không đổi prompt → không đổi điểm):
   - rewrite lỗi API → dùng câu gốc; câu trả lời rỗng → gọi lại 1 lần với khóa cache mới.
+v5:
+  - Câu gốc không dấu: bỏ dense (bge-m3 vô dụng với câu không dấu), chỉ giữ BM25 bỏ dấu.
+  - Đưa top-15 doc vào prompt (vẫn nộp 10 id; doc được cite ở hạng 11-15 lên đầu).
 """
 
 from __future__ import annotations
@@ -84,6 +87,11 @@ def strip_accents(text: str) -> str:
     return "".join(c for c in text if unicodedata.category(c) != "Mn")
 
 
+def is_unaccented(text: str) -> bool:
+    """True nếu câu không có dấu tiếng Việt (kiểu "clb lap trinh thanh lap khi nao")."""
+    return strip_accents(text) == text.lower().replace("đ", "d")
+
+
 def bm25_tokens(text: str) -> list[str]:
     """Âm tiết bỏ dấu + bigram âm tiết (để 'lap trinh' khớp tốt hơn 'lap' và 'trinh' rời)."""
     syl = re.findall(r"\w+", strip_accents(text))
@@ -123,7 +131,7 @@ class GatewayEmbedder:
 
 
 class MyPipeline(RAGPipeline):
-    def __init__(self, top_k: int = 10, n_retrieved: int = 10, llm=None, embedder=None):
+    def __init__(self, top_k: int = 15, n_retrieved: int = 10, llm=None, embedder=None):
         self.top_k = top_k  # số doc đưa vào prompt
         self.n_retrieved = n_retrieved  # số doc nộp để chấm retrieval (tối đa 10)
         # CLI đọc `llm_model` và `embedder` để in thông tin. `llm`/`embedder` cho phép thay bằng bản giả khi test.
@@ -155,15 +163,23 @@ class MyPipeline(RAGPipeline):
 
     # -------------------------------------------------------------- retrieval
     def retrieve(self, query: str, rewrites: list[str]) -> list[Document]:
-        queries = [(query, 0.7)] + [(q, 1.0) for q in rewrites]
-        qvecs = self.embedder.embed([q for q, _ in queries])
+        """Trả về top-max(top_k, n_retrieved) doc theo RRF của dense + BM25 trên mọi truy vấn."""
+        # Câu gốc không dấu: dense bge-m3 xếp doc đúng ở hạng 30-100 → chỉ dùng BM25 (bỏ dấu) cho nó.
+        dense_orig = not is_unaccented(query)
+        queries = [(query, 0.7, dense_orig)] + [(q, 1.0, True) for q in rewrites]
+        dense_qs = [q for q, _, use in queries if use]
+        qvecs = iter(self.embedder.embed(dense_qs)) if dense_qs else iter(())
         fused = np.zeros(len(self.docs), dtype=np.float32)
-        for (q, w), qv in zip(queries, qvecs, strict=True):
-            for scores in (self.doc_vectors @ qv, self.bm25.scores(bm25_tokens(q))):
+        for q, w, use_dense in queries:
+            rankings = [self.bm25.scores(bm25_tokens(q))]
+            if use_dense:
+                rankings.append(self.doc_vectors @ next(qvecs))
+            for scores in rankings:
                 ranks = np.empty(len(scores), dtype=np.float32)
                 ranks[np.argsort(-scores)] = np.arange(1, len(scores) + 1)
                 fused += w / (RRF_K + ranks)
-        return [self.docs[i] for i in np.argsort(-fused)[: self.n_retrieved]]
+        k = max(self.top_k, self.n_retrieved)
+        return [self.docs[i] for i in np.argsort(-fused)[:k]]
 
     # ------------------------------------------------------------- generation
     def generate(self, query: str, rewritten: str, docs: list[Document]) -> tuple[str, list[int]]:
@@ -196,5 +212,6 @@ class MyPipeline(RAGPipeline):
         rewrites = self.rewrite(query)
         docs = self.retrieve(query, rewrites)
         answer, cited = self.generate(query, rewrites[0], docs)
-        ids = list(dict.fromkeys(cited + [d.id for d in docs]))[: self.n_retrieved]
+        # id được cite (có thể ở hạng 11-15 của context) lên đầu, rồi phần còn lại theo RRF; nộp tối đa 10.
+        ids = list(dict.fromkeys(cited + [d.id for d in docs[: self.n_retrieved]]))[: self.n_retrieved]
         return RAGOutput(answer=answer or "Tài liệu hiện không có thông tin để trả lời câu hỏi này.", retrieved_ids=ids)

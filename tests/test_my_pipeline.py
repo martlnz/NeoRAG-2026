@@ -3,9 +3,9 @@
 import pytest
 
 from conftest import FakeEmbedder, FakeLLM
-from neorag.data import Query
+from neorag.data import Document, Query
 from neorag.pipelines import RAGPipeline, load_pipeline
-from neorag.pipelines.pipeline import BM25, MyPipeline, bm25_tokens, strip_accents
+from neorag.pipelines.pipeline import BM25, MyPipeline, bm25_tokens, is_unaccented, strip_accents
 from neorag.predict import predict
 
 
@@ -140,6 +140,55 @@ def test_answer_api_error_is_not_silently_swallowed(corpus):
     p.index(corpus)
     with pytest.raises(RuntimeError):
         p.run("x")
+
+
+# --------------------------------------------------------------------- v5
+def test_is_unaccented():
+    assert is_unaccented("clb lap trinh thanh lap khi nao a")
+    assert not is_unaccented("CLB Lập Trình PTIT thành lập khi nào?")
+    assert not is_unaccented("đi học")
+
+
+class RecordingEmbedder(FakeEmbedder):
+    def __init__(self):
+        self.seen: list[str] = []
+
+    def embed(self, texts):
+        self.seen.extend(texts)
+        return super().embed(texts)
+
+
+def test_unaccented_original_query_skips_dense(corpus):
+    emb = RecordingEmbedder()
+    p = MyPipeline(llm=make_llm("Q: CLB Lập Trình PTIT thành lập khi nào?", "x\nNGUON: 1"), embedder=emb)
+    p.index(corpus)
+    emb.seen.clear()
+    p.run("clb lap trinh thanh lap khi nao")
+    assert emb.seen == ["CLB Lập Trình PTIT thành lập khi nào?"]  # chỉ embed câu viết lại
+
+
+def test_accented_original_query_still_uses_dense(corpus):
+    emb = RecordingEmbedder()
+    p = MyPipeline(llm=make_llm("Q: viết lại", "x\nNGUON: 1"), embedder=emb)
+    p.index(corpus)
+    emb.seen.clear()
+    p.run("CLB Lập Trình PTIT thành lập khi nào?")
+    assert emb.seen[0] == "CLB Lập Trình PTIT thành lập khi nào?"
+
+
+def test_context_has_15_docs_and_late_citation_moves_to_front():
+    docs = [Document(i, "CLB Lập Trình PTIT", "t", f"đoạn văn số {i} nói về chủ đề {i}") for i in range(1, 21)]
+    llm = make_llm("Q: x", "")
+    p = MyPipeline(llm=llm, embedder=FakeEmbedder())
+    p.index(docs)
+    ranked = p.retrieve("x", ["x"])
+    assert len(ranked) == 15
+    late = ranked[12].id  # hạng 13: ngoài 10 id nộp nhưng vẫn có trong context
+    llm.responder = lambda m: f"Trả lời.\nNGUON: {late}" if "TÀI LIỆU:" in m[0]["content"] else "Q: x"
+    out = p.run("x")
+    prompt = llm.calls[-1][0]["content"]
+    assert prompt.count("(CLB Lập Trình PTIT – t)") == 15
+    assert out.retrieved_ids[0] == late and len(out.retrieved_ids) == 10
 
 
 def test_end_to_end_with_runner(corpus):
