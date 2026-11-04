@@ -1,7 +1,8 @@
 """Phân tích kết quả chấm train theo loại câu hỏi (đọc file có sẵn, không gọi API).
 
-Chạy sau `neorag run train --pipeline ...`:
-    python experiments/analyze.py
+Chạy sau `neorag run <split> --pipeline ...`:
+    python experiments/analyze.py              # train
+    python experiments/analyze.py train_informal
 In ra bảng metric theo `type`, độ dài câu trả lời, các câu trượt retrieval và các câu noise cao.
 """
 
@@ -25,10 +26,10 @@ def avg(rows: list[dict], metric: str) -> str:
     return f"{st.mean(vals):.3f}" if vals else "—"
 
 
-def main(root: Path) -> None:
-    gold = {q["id"]: q for q in read_jsonl(root / "data/train/questions.jsonl")}
-    pred = {p["id"]: p for p in read_jsonl(root / "outputs/train_pred.jsonl")}
-    rows = read_jsonl(root / "outputs/eval_train_pred/per_query.jsonl")
+def main(split: str = "train", root: Path = Path(".")) -> None:
+    gold = {q["id"]: q for q in read_jsonl(root / f"data/{split}/questions.jsonl")}
+    pred = {p["id"]: p for p in read_jsonl(root / f"outputs/{split}_pred.jsonl")}
+    rows = read_jsonl(root / f"outputs/eval_{split}_pred/per_query.jsonl")
 
     by_type: dict[str, list[dict]] = defaultdict(list)
     for r in rows:
@@ -72,4 +73,4 @@ def main(root: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]) if len(sys.argv) > 1 else Path("."))
+    main(sys.argv[1] if len(sys.argv) > 1 else "train")
