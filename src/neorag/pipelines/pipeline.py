@@ -17,6 +17,8 @@ v3:
   - Rewrite có cấu trúc (dòng "Q: "), lọc dòng meta; câu so sánh → câu con theo từng CLB.
   - NGUON ghi mọi đoạn chứa thông tin (không chỉ đoạn đã dùng) → giữ recall@5.
   - Chép nguyên văn cụm then chốt (số + đơn vị, tên ban/giải, biệt danh tiếng Anh); nêu link khi hỏi kênh.
+v3.1 (chống lỗi, không đổi prompt → không đổi điểm):
+  - rewrite lỗi API → dùng câu gốc; câu trả lời rỗng → gọi lại 1 lần với khóa cache mới.
 """
 
 from __future__ import annotations
@@ -138,10 +140,13 @@ class MyPipeline(RAGPipeline):
 
     # ---------------------------------------------------------- query rewrite
     def rewrite(self, query: str) -> list[str]:
-        out = self.llm.chat(
-            [{"role": "user", "content": REWRITE_PROMPT.format(query=query)}], model=self.llm_model
-        )
-        qs = [m.group(1).strip() for m in re.finditer(r"^\s*Q\s*[:：]\s*(.+)$", out, flags=re.MULTILINE)]
+        try:
+            out = self.llm.chat(
+                [{"role": "user", "content": REWRITE_PROMPT.format(query=query)}], model=self.llm_model
+            )
+        except Exception:  # rewrite chỉ là bước phụ: lỗi API thì vẫn truy xuất bằng câu gốc
+            return [query]
+        qs =[m.group(1).strip() for m in re.finditer(r"^\s*Q\s*[:：]\s*(.+)$", out, flags=re.MULTILINE)]
         if not qs:  # dự phòng: LLM không theo định dạng → lọc dòng meta
             qs = [re.sub(r"^\s*(?:\d+[.)]|[-*•])\s*", "", line).strip() for line in out.splitlines()]
         qs = [re.sub(r"^(?:câu (?:viết lại|hỏi con)[^:]*:)\s*", "", q, flags=re.IGNORECASE) for q in qs]
@@ -163,10 +168,20 @@ class MyPipeline(RAGPipeline):
     # ------------------------------------------------------------- generation
     def generate(self, query: str, rewritten: str, docs: list[Document]) -> tuple[str, list[int]]:
         context = "\n\n".join(f"[{d.id}] ({d.club} – {d.topic}) {d.text}" for d in docs[: self.top_k])
-        out = self.llm.chat(
-            [{"role": "user", "content": ANSWER_PROMPT.format(context=context, query=query, rewritten=rewritten)}],
-            model=self.llm_model,
+        prompt = ANSWER_PROMPT.format(context=context, query=query, rewritten=rewritten)
+        answer, cited = self._parse_answer(
+            self.llm.chat([{"role": "user", "content": prompt}], model=self.llm_model), docs
         )
+        if not answer:
+            # Câu trả lời rỗng đã nằm trong cache sẽ lặp lại mãi → gọi lại một lần với prompt khác
+            # đúng 1 ký tự (khóa cache mới). Lỗi API ở đây được để lộ ra: chạy lại lệnh sẽ dùng cache.
+            answer, cited = self._parse_answer(
+                self.llm.chat([{"role": "user", "content": prompt + "\n"}], model=self.llm_model), docs
+            )
+        return answer, cited
+
+    def _parse_answer(self, out: str, docs: list[Document]) -> tuple[str, list[int]]:
+        """Tách dòng NGUON (chỉ giữ id có trong context), xóa markdown, gộp về một đoạn."""
         cited: list[int] = []
         m = re.search(r"^\s*NGU[OỒ]N\s*:\s*(.*)$", out, flags=re.MULTILINE | re.IGNORECASE)
         if m:

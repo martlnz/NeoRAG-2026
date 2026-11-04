@@ -104,6 +104,44 @@ def test_two_llm_calls_per_question(corpus):
     assert len(llm.calls) == 2
 
 
+# ------------------------------------------------------------- robustness (v3.1)
+def test_empty_answer_is_retried_once(corpus):
+    """Câu trả lời rỗng → gọi lại một lần với prompt khác (khóa cache mới) và dùng kết quả đó."""
+    answers = iter(["NGUON: 1", "Ngày 09/10/2011.\nNGUON: 1"])
+    llm = FakeLLM(lambda m: next(answers) if "TÀI LIỆU:" in m[0]["content"] else "Q: x")
+    p = MyPipeline(llm=llm, embedder=FakeEmbedder())
+    p.index(corpus)
+    out = p.run("x")
+    assert out.answer == "Ngày 09/10/2011."
+    assert len(llm.calls) == 3  # rewrite + answer rỗng + gọi lại
+    assert llm.calls[2][0]["content"] != llm.calls[1][0]["content"]
+
+
+def test_rewrite_api_error_falls_back_to_original_query(corpus):
+    def responder(messages):
+        if "TÀI LIỆU:" not in messages[0]["content"]:
+            raise RuntimeError("gateway 500")
+        return "Trả lời.\nNGUON: 1"
+
+    p = MyPipeline(llm=FakeLLM(responder), embedder=FakeEmbedder())
+    p.index(corpus)
+    assert p.rewrite("câu gốc") == ["câu gốc"]
+    assert p.run("câu gốc").answer == "Trả lời."
+
+
+def test_answer_api_error_is_not_silently_swallowed(corpus):
+    """Lỗi ở bước sinh câu trả lời phải lộ ra (chạy lại dùng cache), không được nộp câu từ chối giả."""
+    def responder(messages):
+        if "TÀI LIỆU:" in messages[0]["content"]:
+            raise RuntimeError("gateway 500")
+        return "Q: x"
+
+    p = MyPipeline(llm=FakeLLM(responder), embedder=FakeEmbedder())
+    p.index(corpus)
+    with pytest.raises(RuntimeError):
+        p.run("x")
+
+
 def test_end_to_end_with_runner(corpus):
     p = make_pipeline(corpus, rewrite="Q: ProPTIT thành lập khi nào?", answer="Ngày 09/10/2011.\nNGUON: 1")
     preds = predict(p, [Query("q1", "proptit thanh lap khi nao")], max_retrieved=10)
