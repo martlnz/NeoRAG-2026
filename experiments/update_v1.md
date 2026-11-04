@@ -46,6 +46,10 @@ Chi phí: 2 lời gọi LLM mỗi câu (viết lại + sinh câu trả lời). L
 - Generation score: **0.8306**
 - Benchmark score: **0.9038**
 
+### Điểm Public Test (trang thi aichallenge)
+
+**83.36** (baseline 52.40, ngưỡng 53.40)
+
 ### So với v0
 
 | | v0 | v1 | Δ |

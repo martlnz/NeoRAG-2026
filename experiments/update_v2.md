@@ -43,6 +43,16 @@ Chi phí vẫn là 2 lời gọi LLM mỗi câu. Latency trung vị khoảng 5.0
 - Generation score: **0.8507**
 - Benchmark score: **0.9091**
 
+### Điểm Public Test (trang thi aichallenge)
+
+**87.13** (v1: 83.36 → **+3.77**; baseline 52.40, ngưỡng 53.40)
+
+Trên public, điểm tăng mạnh hơn hẳn trên train (+0.53). Các thay đổi của v2 hợp với câu hỏi văn nói của public:
+- Câu trả lời ngắn, không rào đón, nên noise và ROUGE-L tốt hơn.
+- Rewrite giữ đúng ý định, nên giảm số câu từ chối oan (từ 8 xuống 6).
+
+Điều này cho thấy train không phản ánh đầy đủ public, và nên dùng điểm public làm thước đo chính để quyết định bản nộp.
+
 ### So với các bản trước
 
 | | v0 | v1 | v2 | Δ v2−v1 |
