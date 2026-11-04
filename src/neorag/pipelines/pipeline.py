@@ -10,6 +10,9 @@ v1:
   1. LLM viết lại câu hỏi (thêm dấu, mở viết tắt, chuẩn hóa tên CLB, tách câu nhiều ý).
   2. Hybrid retrieval: BM25 trên văn bản bỏ dấu + dense bge-m3, gộp bằng RRF trên nhiều truy vấn.
   3. Prompt sinh ngắn gọn, không markdown; LLM ghi id nguồn → đẩy lên đầu retrieved_ids.
+v2:
+  - Prompt sinh 1-2 câu, tên CLB chuẩn, không rào đón / ý phụ; đưa 10 doc vào prompt.
+  - Prompt viết lại giữ đúng ý định ("chạy chương trình" = sự kiện, không phải lập trình).
 """
 
 from __future__ import annotations
@@ -31,9 +34,10 @@ REWRITE_PROMPT = """Bạn chuẩn hóa câu hỏi của sinh viên về cộng �
 - CLB Multimedia PTIT (MPC; "clb multimedia", "clb mm", "clb truyền thông/thiết kế/quay dựng")
 - CLB Nhà Sáng Tạo Game PTIT (GCC; "clb game", "clb làm game")
 Viết tắt thường gặp: hv = Học viện, e = em, a/c = anh/chị, ko/k = không, tv = thành viên, dpt = Đa phương tiện, nk = nhiệm kỳ, cn = chủ nhiệm.
+Lưu ý nghĩa: "chương trình", "plan", "chạy chương trình" thường là tổ chức sự kiện, không phải lập trình; "code" mới là lập trình.
 
 Nhiệm vụ:
-1. Viết lại câu hỏi thành tiếng Việt đầy đủ dấu, rõ ràng, nêu tên CLB chuẩn nếu xác định được. Không thêm thông tin mà câu hỏi không có.
+1. Viết lại câu hỏi thành tiếng Việt đầy đủ dấu, rõ ràng, nêu tên CLB chuẩn nếu xác định được. Giữ đúng ý định và mọi chi tiết người hỏi nêu; không đổi nghĩa, không thêm thông tin mà câu hỏi không có.
 2. Nếu câu hỏi gồm nhiều ý hoặc so sánh nhiều CLB, viết thêm tối đa 3 câu hỏi con, mỗi câu một ý hoặc một CLB.
 
 Chỉ in các câu hỏi, mỗi câu một dòng, dòng đầu là câu viết lại. Không đánh số, không giải thích.
@@ -43,12 +47,14 @@ CÂU HỎI: {query}"""
 ANSWER_PROMPT = """Bạn là trợ lý tư vấn về các CLB thuộc cộng đồng S2B của PTIT. Chỉ dùng TÀI LIỆU bên dưới.
 
 Quy tắc:
-- Trả lời ngắn gọn 1-3 câu văn xuôi; không markdown, không in đậm, không gạch đầu dòng, không chào hỏi.
-- Câu đầu trả lời thẳng vào câu hỏi và nêu tên CLB đầy đủ.
+- Trả lời 1-2 câu văn xuôi, tối đa khoảng 60 từ; không markdown, không in đậm, không gạch đầu dòng, không chào hỏi.
+- Câu đầu lặp lại chủ thể của câu hỏi và trả lời thẳng (ví dụ "CLB Lập Trình PTIT được thành lập ngày ...").
+- Gọi tên CLB đúng một dạng: "CLB Lập Trình PTIT", "CLB Multimedia PTIT", "CLB Nhà Sáng Tạo Game PTIT (GCC)"; không thêm tên tiếng Anh hay tên dài nếu không được hỏi.
+- Chỉ nêu thông tin mà câu hỏi hỏi tới; không thêm "ngoài ra", hashtag, link, liên hệ hay bối cảnh khi không được hỏi.
 - Giữ nguyên tên riêng, ngày tháng, số liệu đúng như trong tài liệu.
-- Câu hỏi so sánh hoặc nhiều ý: trả lời đủ từng ý.
-- Nếu tài liệu chỉ có một phần thông tin, trả lời phần đó và nói ngắn gọn phần còn thiếu.
-- Chỉ khi không đoạn nào liên quan mới trả lời "Tài liệu hiện không có thông tin về ..." và không đoán.
+- Câu hỏi so sánh hoặc nhiều ý: mỗi ý một mệnh đề ngắn, trả lời đủ từng ý, kể cả khi thông tin nằm rải rác ở nhiều đoạn.
+- Không viết câu kiểu "Tài liệu không nêu/không ghi chi tiết ..." về những khía cạnh câu hỏi không hỏi. Chỉ khi chính điều được hỏi không có trong tài liệu mới nói ngắn gọn điều đó trong cùng câu trả lời.
+- Khi không đoạn nào liên quan: trả lời "Tài liệu hiện không có thông tin về ..." và không đoán.
 
 Dòng cuối cùng ghi: NGUON: <id các đoạn đã dùng, cách nhau dấu phẩy>
 
@@ -105,7 +111,7 @@ class GatewayEmbedder:
 
 
 class MyPipeline(RAGPipeline):
-    def __init__(self, top_k: int = 8, n_retrieved: int = 10):
+    def __init__(self, top_k: int = 10, n_retrieved: int = 10):
         self.top_k = top_k  # số doc đưa vào prompt
         self.n_retrieved = n_retrieved  # số doc nộp để chấm retrieval (tối đa 10)
         # CLI đọc `llm_model` và `embedder` để in thông tin.
