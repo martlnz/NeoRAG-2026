@@ -30,6 +30,22 @@ Test mới trong `tests/test_my_pipeline.py`:
 
 Điểm không đổi so với v3. Lần chạy lấy 100% từ cache (12.5 giây cho train, 5.9 giây cho public), nên không tốn ngân sách. Bảng metric chi tiết giống `update_v3.md`.
 
+### Điểm Public Test (trang thi aichallenge) và độ nhiễu của judge
+
+| Lần nộp | File | Giờ | Score | Norm (R) |
+|---|---|---|---|---|
+| 33140 | v1 | 01:47 | 83.36 | 75.24 |
+| 33142 | v2 | 02:11 | 87.13 | 84.71 |
+| 33143 | v3 | 02:36 | 84.81 | 78.88 |
+| 33144 | v4 | 02:38 | 84.94 | 79.21 |
+| 33145 | **v2 (nộp lại đúng file cũ)** | 02:41 | **84.23** | 77.42 |
+
+- **Cùng một file v2 được chấm 87.13 rồi 84.23, lệch 2.9 điểm.** Đó là độ nhiễu thật của judge trên public (42 câu, mỗi bài nộp được chấm độc lập), lớn hơn nhiều so với mức ±1 mà tài liệu ghi.
+- Tính ngược từ norm ở cả hai lần nộp v2 đều ra **max ≈ 93.2**. Vậy max không đổi, và việc điểm tụt không phải do thang quy đổi.
+- v2 (trung bình hai lần 85.68), v3 (84.81) và v4 (84.94) **ngang nhau trong biên nhiễu**. Không thể kết luận v3/v4 kém hơn v2.
+- **Kết luận:** một lần nộp public không đủ để so sánh các bản. Nên dùng train (126 câu) làm thước đo chính, còn public chỉ để kiểm tra bản có bị hỏng hay không. **Chốt v4 làm bản thi Private**: train cao nhất và có chống lỗi.
+- Max trên bảng xếp hạng (≈ 93.2) cao hơn mức của mình khoảng 8 điểm, vượt xa biên nhiễu. Vậy trên public vẫn còn dư địa thật, có thể nằm ở các câu văn nói hoặc không dấu, vốn chiếm phần lớn bộ public.
+
 ## 3. Phân tích
 
 ### Đã làm được
