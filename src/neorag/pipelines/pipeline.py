@@ -13,6 +13,10 @@ v1:
 v2:
   - Prompt sinh 1-2 câu, tên CLB chuẩn, không rào đón / ý phụ; đưa 10 doc vào prompt.
   - Prompt viết lại giữ đúng ý định ("chạy chương trình" = sự kiện, không phải lập trình).
+v3:
+  - Rewrite có cấu trúc (dòng "Q: "), lọc dòng meta; câu so sánh → câu con theo từng CLB.
+  - NGUON ghi mọi đoạn chứa thông tin (không chỉ đoạn đã dùng) → giữ recall@5.
+  - Chép nguyên văn cụm then chốt (số + đơn vị, tên ban/giải, biệt danh tiếng Anh); nêu link khi hỏi kênh.
 """
 
 from __future__ import annotations
@@ -38,9 +42,10 @@ Lưu ý nghĩa: "chương trình", "plan", "chạy chương trình" thường l�
 
 Nhiệm vụ:
 1. Viết lại câu hỏi thành tiếng Việt đầy đủ dấu, rõ ràng, nêu tên CLB chuẩn nếu xác định được. Giữ đúng ý định và mọi chi tiết người hỏi nêu; không đổi nghĩa, không thêm thông tin mà câu hỏi không có.
-2. Nếu câu hỏi gồm nhiều ý hoặc so sánh nhiều CLB, viết thêm tối đa 3 câu hỏi con, mỗi câu một ý hoặc một CLB.
+2. Nếu câu hỏi gồm nhiều ý hoặc so sánh nhiều CLB, viết thêm tối đa 3 câu hỏi con, mỗi câu một ý hoặc một CLB. Với câu so sánh/xếp hạng giữa các CLB, mỗi câu con hỏi đúng thuộc tính đó cho từng CLB (ví dụ "CLB Multimedia PTIT được thành lập ngày nào?").
+3. Không nhắc tới CLB mà người hỏi không nêu.
 
-Chỉ in các câu hỏi, mỗi câu một dòng, dòng đầu là câu viết lại. Không đánh số, không giải thích.
+Định dạng bắt buộc: mỗi câu hỏi trên một dòng, bắt đầu bằng "Q: ", dòng đầu là câu viết lại. Câu hỏi chỉ có một ý thì in đúng một dòng. Không in gì khác.
 
 CÂU HỎI: {query}"""
 
@@ -49,14 +54,14 @@ ANSWER_PROMPT = """Bạn là trợ lý tư vấn về các CLB thuộc cộng đ
 Quy tắc:
 - Trả lời 1-2 câu văn xuôi, tối đa khoảng 60 từ; không markdown, không in đậm, không gạch đầu dòng, không chào hỏi.
 - Câu đầu lặp lại chủ thể của câu hỏi và trả lời thẳng (ví dụ "CLB Lập Trình PTIT được thành lập ngày ...").
-- Gọi tên CLB đúng một dạng: "CLB Lập Trình PTIT", "CLB Multimedia PTIT", "CLB Nhà Sáng Tạo Game PTIT (GCC)"; không thêm tên tiếng Anh hay tên dài nếu không được hỏi.
-- Chỉ nêu thông tin mà câu hỏi hỏi tới; không thêm "ngoài ra", hashtag, link, liên hệ hay bối cảnh khi không được hỏi.
-- Giữ nguyên tên riêng, ngày tháng, số liệu đúng như trong tài liệu.
+- Gọi tên CLB đúng một dạng: "CLB Lập Trình PTIT", "CLB Multimedia PTIT", "CLB Nhà Sáng Tạo Game PTIT (GCC)"; không dùng tên dài hay tên tiếng Anh của CLB nếu không được hỏi.
+- Chỉ nêu thông tin mà câu hỏi hỏi tới; không thêm "ngoài ra", hashtag hay bối cảnh khi không được hỏi. Khi câu hỏi hỏi đăng ký/liên hệ ở đâu, qua kênh nào thì nêu đúng link, email, website.
+- Chép nguyên văn cụm then chốt từ tài liệu: tên riêng, ngày tháng, số kèm đơn vị, tên giải/ban/đội/sự kiện (kể cả tên tiếng Anh như biệt danh của ban), tên đơn vị; không diễn đạt lại các cụm này.
 - Câu hỏi so sánh hoặc nhiều ý: mỗi ý một mệnh đề ngắn, trả lời đủ từng ý, kể cả khi thông tin nằm rải rác ở nhiều đoạn.
 - Không viết câu kiểu "Tài liệu không nêu/không ghi chi tiết ..." về những khía cạnh câu hỏi không hỏi. Chỉ khi chính điều được hỏi không có trong tài liệu mới nói ngắn gọn điều đó trong cùng câu trả lời.
 - Khi không đoạn nào liên quan: trả lời "Tài liệu hiện không có thông tin về ..." và không đoán.
 
-Dòng cuối cùng ghi: NGUON: <id các đoạn đã dùng, cách nhau dấu phẩy>
+Dòng cuối cùng ghi: NGUON: <id của MỌI đoạn chứa thông tin trả lời câu hỏi, kể cả đoạn trùng ý, xếp từ liên quan nhất, cách nhau dấu phẩy>
 
 TÀI LIỆU:
 {context}
@@ -65,6 +70,11 @@ CÂU HỎI GỐC: {query}
 (Hiểu là: {rewritten})"""
 
 RRF_K = 60
+# Dòng meta LLM đôi khi in kèm khi viết lại câu hỏi (không phải câu hỏi) → loại khỏi retrieval.
+META = re.compile(
+    r"không cần (?:tách|câu hỏi con)|chỉ có một ý|chỉ có 1 ý|viết lại như sau|các câu hỏi con|^lưu ý|^ghi chú",
+    flags=re.IGNORECASE,
+)
 
 
 def strip_accents(text: str) -> str:
@@ -75,7 +85,7 @@ def strip_accents(text: str) -> str:
 def bm25_tokens(text: str) -> list[str]:
     """Âm tiết bỏ dấu + bigram âm tiết (để 'lap trinh' khớp tốt hơn 'lap' và 'trinh' rời)."""
     syl = re.findall(r"\w+", strip_accents(text))
-    return syl + [f"{a}_{b}" for a, b in zip(syl, syl[1:])]
+    return syl + [f"{a}_{b}" for a, b in zip(syl, syl[1:], strict=False)]
 
 
 class BM25:
@@ -111,13 +121,13 @@ class GatewayEmbedder:
 
 
 class MyPipeline(RAGPipeline):
-    def __init__(self, top_k: int = 10, n_retrieved: int = 10):
+    def __init__(self, top_k: int = 10, n_retrieved: int = 10, llm=None, embedder=None):
         self.top_k = top_k  # số doc đưa vào prompt
         self.n_retrieved = n_retrieved  # số doc nộp để chấm retrieval (tối đa 10)
-        # CLI đọc `llm_model` và `embedder` để in thông tin.
+        # CLI đọc `llm_model` và `embedder` để in thông tin. `llm`/`embedder` cho phép thay bằng bản giả khi test.
         self.llm_model = os.getenv("LLM_MODEL", "claude-haiku-5-5")
-        self.llm = LLMClient(cache_path=".cache/pipeline.sqlite")
-        self.embedder = GatewayEmbedder(self.llm, os.getenv("EMBEDDING_MODEL", "bge-m3"))
+        self.llm = llm or LLMClient(cache_path=".cache/pipeline.sqlite")
+        self.embedder = embedder or GatewayEmbedder(self.llm, os.getenv("EMBEDDING_MODEL", "bge-m3"))
 
     # ------------------------------------------------------------------ index
     def index(self, corpus: list[Document]) -> None:
@@ -131,15 +141,19 @@ class MyPipeline(RAGPipeline):
         out = self.llm.chat(
             [{"role": "user", "content": REWRITE_PROMPT.format(query=query)}], model=self.llm_model
         )
-        lines = [re.sub(r"^\s*(?:\d+[.)]|[-*•])\s*", "", l).strip() for l in out.splitlines()]
-        return [l for l in lines if len(l) > 3][:4] or [query]
+        qs = [m.group(1).strip() for m in re.finditer(r"^\s*Q\s*[:：]\s*(.+)$", out, flags=re.MULTILINE)]
+        if not qs:  # dự phòng: LLM không theo định dạng → lọc dòng meta
+            qs = [re.sub(r"^\s*(?:\d+[.)]|[-*•])\s*", "", line).strip() for line in out.splitlines()]
+        qs = [re.sub(r"^(?:câu (?:viết lại|hỏi con)[^:]*:)\s*", "", q, flags=re.IGNORECASE) for q in qs]
+        qs = [q for q in qs if len(q) > 3 and not META.search(q)]
+        return qs[:4] or [query]
 
     # -------------------------------------------------------------- retrieval
     def retrieve(self, query: str, rewrites: list[str]) -> list[Document]:
         queries = [(query, 0.7)] + [(q, 1.0) for q in rewrites]
         qvecs = self.embedder.embed([q for q, _ in queries])
         fused = np.zeros(len(self.docs), dtype=np.float32)
-        for (q, w), qv in zip(queries, qvecs):
+        for (q, w), qv in zip(queries, qvecs, strict=True):
             for scores in (self.doc_vectors @ qv, self.bm25.scores(bm25_tokens(q))):
                 ranks = np.empty(len(scores), dtype=np.float32)
                 ranks[np.argsort(-scores)] = np.arange(1, len(scores) + 1)
