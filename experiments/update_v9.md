@@ -42,7 +42,7 @@ Theo đề xuất của người dùng: *"dựa vào các mẫu trả lời đ�
 
 ### Điểm Public Test (trang thi aichallenge)
 
-_(chờ nộp)_
+**86.05** (v6: 88.43, v8: 88.15). Thấp hơn v6 2.4 điểm. Mức chênh vẫn trong biên nhiễu ±3, nhưng **cùng chiều với train_informal** (public phần lớn là câu văn nói, đúng nơi mẫu chung gây hại).
 
 ### So với v6
 
@@ -51,6 +51,7 @@ _(chờ nộp)_
 | train | 0.9220 | **0.9271** | +0.0051 |
 | train_informal | **0.9083** | 0.9031 | −0.0052 |
 | **Trung bình hai bộ** | **0.9152** | 0.9151 | ≈ 0 |
+| **Public** | **88.43** | 86.05 | −2.38 |
 | train: String Presence / ROUGE-L | 0.910 / 0.662 | **0.919 / 0.672** | +0.009 / +0.010 |
 | train: Noise ↓ | 0.048 | **0.026** | tốt hơn rõ |
 | informal: String Presence / ROUGE-L | **0.905 / 0.660** | 0.890 / 0.638 | −0.015 / −0.022 |
@@ -66,6 +67,6 @@ _(chờ nộp)_
 - Tăng và giảm triệt tiêu nhau, nằm trong biên nhiễu, nên **không có bằng chứng v9 tốt hơn v6**.
 
 ## 4. Quyết định
-- Giữ **v6 làm bản thi Private** (`MyPipeline` mặc định).
+- Giữ **v6 làm bản thi Private** (`MyPipeline` mặc định). Điểm public của v9 (86.05) xác nhận quyết định này.
 - Nộp thử `v9_public_test_submission.zip` theo yêu cầu, để có thêm một điểm dữ liệu public. Lưu ý mỗi lần nộp nhiễu khoảng ±3 điểm.
 - Hướng tiếp theo nếu còn ngân sách: **chỉ bật mẫu chung khi câu hỏi gốc có dấu**, tức câu không phải văn nói (dùng `is_unaccented`). Cách này giữ được phần lợi trên train mà tránh phần hại trên informal. Có thể kiểm tra **gần như miễn phí**, vì câu trả lời của cả hai nhánh đều đã có trong cache.
