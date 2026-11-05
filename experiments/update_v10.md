@@ -28,7 +28,7 @@
 
 ### Điểm Public Test (trang thi aichallenge)
 
-_(chờ nộp)_
+**85.53** (v6: 88.43, v9: 86.05, v8: 88.15).
 
 ### So với các bản trước
 
@@ -37,7 +37,7 @@ _(chờ nộp)_
 | train | 0.9220 | **0.9271** | 0.9269 |
 | train_informal | **0.9083** | 0.9031 | **0.9083** |
 | Trung bình hai bộ | 0.9152 | 0.9151 | **0.9176** |
-| Public | **88.43** | 86.05 | _chờ_ |
+| Public | **88.43** | 86.05 | 85.53 |
 
 Cách ghép trên public, đã kiểm tra bằng code: **22/42 câu có dấu** dùng đúng câu trả lời của v9, **20/42 câu không dấu** dùng đúng câu trả lời của v6.
 
@@ -51,7 +51,23 @@ Cách ghép trên public, đã kiểm tra bằng code: **22/42 câu có dấu** 
 - Public của v9 thấp hơn v6 2.4 điểm. Phần giảm này có thể đến một phần từ 22 câu có dấu chứ không chỉ từ câu văn nói, nhưng không đo riêng được vì judge public chấm tổng và nhiễu ±3. Kỳ vọng v10 trên public **ngang hoặc nhỉnh hơn v6**, không chắc chắn.
 - Ranh giới "có dấu / không dấu" là xấp xỉ cho "câu viết chuẩn / văn nói". Câu có dấu nhưng mơ hồ vẫn nhận mẫu chung.
 
-## 4. Quyết định
-- Chờ điểm public của v10.
-- Nếu v10 ≥ khoảng 87 (tức ngang v6 trong biên nhiễu), chuyển `MyPipeline` mặc định sang hành vi v10 cho ngày Private, vì v10 tốt hơn hoặc bằng v6 trên mọi bộ dev.
-- Nếu thấp hơn rõ, giữ v6.
+## 4. Quyết định: ❌ không dùng v10, **chốt v6 cho Private**
+
+- v10 thấp hơn v6 khoảng 2.9 điểm trên public, dù v10 tốt hơn hoặc bằng v6 trên mọi bộ dev.
+- Hai bản có mẫu trả lời chung (v9 86.05, v10 85.53) đều thấp hơn v6 khoảng 2.5–3 điểm. Đây là xu hướng lặp lại, không chỉ là một lần judge dao động.
+- Kết luận: **mẫu chung gây hại cả với câu có dấu của public.** Câu có dấu trên public vẫn mang giọng hội thoại ("Em chưa có máy tính…", "…không ạ?"), khác với câu viết chuẩn trong train. Vì vậy bộ dev, kể cả `train_informal`, không đại diện đủ cho phần này.
+
+### Tổng kết sau v6 (v7–v10)
+
+| Bản | Thay đổi so với v6 | Dev (train / informal) | Public |
+|---|---|---|---|
+| **v6** | — | 0.9220 / 0.9083 | **88.43** |
+| v7 | few-shot thật | thấp hơn (sau khi loại câu few-shot) | — |
+| v8 | parent-child + từ chối 1 câu | 0.9229 / 0.8945 | 88.15 |
+| v9 | mẫu chung mọi câu | 0.9271 / 0.9031 | 86.05 |
+| v10 | mẫu chung cho câu có dấu | 0.9269 / 0.9083 | 85.53 |
+
+**Bài học:**
+1. Khi dev đã sát trần (khoảng 0.92), những mức tăng 0.005 trên dev không đáng tin để chuyển sang public. Phân phối câu hỏi public khác dev, và judge public dao động khoảng ±3.
+2. Các thay đổi về *văn phong câu trả lời* (few-shot, mẫu chung) đặc biệt rủi ro, vì judge chấm Noise và Relevancy theo câu.
+3. Đã đến lúc **đóng băng v6**, giữ ngân sách (khoảng 1.8 USD) cho ngày 08/11, và dồn thời gian cho Demo và pitching.
