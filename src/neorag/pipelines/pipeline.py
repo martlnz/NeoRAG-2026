@@ -39,7 +39,7 @@ from collections import Counter
 
 import numpy as np
 
-from neorag.data import Document
+from neorag.data import DATA_DIR, Document, read_jsonl
 from neorag.llm import LLMClient
 from neorag.pipelines.base import RAGOutput, RAGPipeline
 
@@ -77,8 +77,10 @@ Quy tắc:
 - Khi chính điều được hỏi không có trong tài liệu: câu đầu bắt đầu đúng bằng "Tài liệu hiện không có thông tin về ...". Không suy ra khẳng định phủ định (như "X không có ...") chỉ vì tài liệu không nhắc tới. Có thể thêm tối đa một câu bắt đầu bằng "Tài liệu chỉ nêu ..." với thông tin liên quan gần nhất; không đoán.
 - Nếu chỉ một phần câu hỏi không có trong tài liệu: trả lời phần có trước, rồi nói "tài liệu không ghi ..." cho phần còn lại.
 
-Dòng cuối cùng ghi: NGUON: <id của MỌI đoạn chứa thông tin trả lời câu hỏi, kể cả đoạn trùng ý, xếp từ liên quan nhất, cách nhau dấu phẩy>
+- Câu hỏi hỏi danh sách (những gì, những ai, các ..., gồm ...): liệt kê đủ mọi mục có trong tài liệu, được phép dài hơn 60 từ.
 
+Dòng cuối cùng ghi: NGUON: <id của MỌI đoạn chứa thông tin trả lời câu hỏi, kể cả đoạn trùng ý, xếp từ liên quan nhất, cách nhau dấu phẩy>
+{examples}
 TÀI LIỆU:
 {context}
 
@@ -86,6 +88,19 @@ CÂU HỎI GỐC: {query}
 (Hiểu là: {rewritten})"""
 
 RRF_K = 60
+# Few-shot tĩnh từ tập train (quy định cho phép dùng train để xây few-shot): mỗi kiểu trả lời một ví dụ.
+FEWSHOT_IDS = (
+    "train-0085",  # nêu nguồn
+    "train-0028",  # có/không + nguồn + nhiều đoạn
+    "train-0010",  # so sánh
+    "train-0050",  # không có đáp án
+    "train-0069",  # thiếu một phần dữ liệu
+    "train-0101",  # mâu thuẫn nguồn
+)
+FEWSHOT_HEADER = (
+    "\nVÍ DỤ CÁCH TRÌNH BÀY (chỉ để học văn phong, độ chi tiết và cách từ chối; "
+    "KHÔNG dùng làm nguồn thông tin, mọi thông tin phải lấy từ TÀI LIỆU bên dưới):\n"
+)
 DANGLING = re.compile(r"\b(?:CLB|câu lạc bộ) (?:đó|này|ấy)\b|\bở đó\b", flags=re.IGNORECASE)
 # Dòng meta LLM đôi khi in kèm khi viết lại câu hỏi (không phải câu hỏi) → loại khỏi retrieval.
 META = re.compile(
@@ -97,6 +112,21 @@ META = re.compile(
 def strip_accents(text: str) -> str:
     text = unicodedata.normalize("NFD", text.lower().replace("đ", "d").replace("Đ", "d"))
     return "".join(c for c in text if unicodedata.category(c) != "Mn")
+
+
+def build_examples(ids) -> str:
+    """Khối few-shot từ đáp án train theo id. Không có file train/id → bỏ few-shot (trả "")."""
+    path = DATA_DIR / "train" / "questions.jsonl"
+    if not ids or not path.exists():
+        return ""
+    by_id = {r["id"]: r for r in read_jsonl(path)}
+    shots = []
+    for i in ids:
+        if i in by_id:
+            # Quy tắc dùng "Có, ..." (dấu phẩy) để không bị tách thành câu riêng khi chấm.
+            answer = re.sub(r"^(Có|Không|Đúng|Chưa)\.\s+", r"\1, ", by_id[i]["answer"])
+            shots.append(f"Hỏi: {by_id[i]['query']}\nĐáp: {answer}")
+    return FEWSHOT_HEADER + "\n\n".join(shots) + "\n" if shots else ""
 
 
 def is_unaccented(text: str) -> bool:
@@ -143,9 +173,12 @@ class GatewayEmbedder:
 
 
 class MyPipeline(RAGPipeline):
-    def __init__(self, top_k: int = 15, n_retrieved: int = 10, llm=None, embedder=None):
+    def __init__(
+        self, top_k: int = 15, n_retrieved: int = 10, llm=None, embedder=None, fewshot_ids=FEWSHOT_IDS
+    ):
         self.top_k = top_k  # số doc đưa vào prompt
         self.n_retrieved = n_retrieved  # số doc nộp để chấm retrieval (tối đa 10)
+        self.examples = build_examples(fewshot_ids)
         # CLI đọc `llm_model` và `embedder` để in thông tin. `llm`/`embedder` cho phép thay bằng bản giả khi test.
         self.llm_model = os.getenv("LLM_MODEL", "claude-haiku-5-5")
         self.llm = llm or LLMClient(cache_path=".cache/pipeline.sqlite")
@@ -198,7 +231,9 @@ class MyPipeline(RAGPipeline):
     # ------------------------------------------------------------- generation
     def generate(self, query: str, rewritten: str, docs: list[Document]) -> tuple[str, list[int]]:
         context = "\n\n".join(f"[{d.id}] ({d.club} – {d.topic}) {d.text}" for d in docs[: self.top_k])
-        prompt = ANSWER_PROMPT.format(context=context, query=query, rewritten=rewritten)
+        prompt = ANSWER_PROMPT.format(
+            context=context, query=query, rewritten=rewritten, examples=self.examples
+        )
         answer, cited = self._parse_answer(
             self.llm.chat([{"role": "user", "content": prompt}], model=self.llm_model), docs
         )

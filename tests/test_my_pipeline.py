@@ -219,6 +219,27 @@ def test_yes_no_opening_is_preserved(corpus):
     assert p.run("x").answer == "Có, CLB Lập Trình PTIT nhận sinh viên năm nhất."
 
 
+# --------------------------------------------------------------------- v7
+def test_fewshot_examples_built_from_train():
+    from neorag.pipelines.pipeline import FEWSHOT_IDS, build_examples
+
+    block = build_examples(FEWSHOT_IDS)
+    assert block.count("Hỏi: ") == len(FEWSHOT_IDS)
+    assert "KHÔNG dùng làm nguồn thông tin" in block
+    assert "Đáp: Có, Theo Phòng truyền thống" in block  # "Có." trong đáp án train → "Có,"
+    assert build_examples(()) == ""
+
+
+def test_fewshot_block_is_in_answer_prompt_only(corpus):
+    llm = make_llm("Q: x", "Trả lời.\nNGUON: 1")
+    p = MyPipeline(llm=llm, embedder=FakeEmbedder())
+    p.index(corpus)
+    p.run("x")
+    rewrite_prompt, answer_prompt = llm.calls[0][0]["content"], llm.calls[1][0]["content"]
+    assert "VÍ DỤ CÁCH TRÌNH BÀY" in answer_prompt and "VÍ DỤ CÁCH TRÌNH BÀY" not in rewrite_prompt
+    assert answer_prompt.index("VÍ DỤ CÁCH TRÌNH BÀY") < answer_prompt.index("TÀI LIỆU:\n")
+
+
 def test_end_to_end_with_runner(corpus):
     p = make_pipeline(corpus, rewrite="Q: ProPTIT thành lập khi nào?", answer="Ngày 09/10/2011.\nNGUON: 1")
     preds = predict(p, [Query("q1", "proptit thanh lap khi nao")], max_retrieved=10)
