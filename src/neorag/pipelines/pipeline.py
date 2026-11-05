@@ -33,6 +33,9 @@ v8 (bị loại; các phần được giữ dưới dạng tùy chọn tắt m�
     (câu không có đáp án chỉ chấm Abstention; câu ngữ cảnh chỉ thêm rủi ro bị chấm 0).
   - Parent-child retrieval: child = từng câu (+ header club|topic), max-pooling về đoạn cha,
     gộp RRF với ranking đoạn nguyên (dense + BM25). Nộp id và đưa toàn văn đoạn cha cho LLM.
+v9 (hòa v6 → không dùng; mẫu chung giữ dưới dạng tùy chọn answer_templates=True):
+  - Bật ANSWER_TEMPLATES: 8 mẫu trả lời CHUNG (có chỗ trống <...>) rút từ khuôn đáp án train,
+    không chứa câu hỏi/dữ kiện thật → không rò rỉ, không có gì để LLM chép nhầm (khác v7).
 """
 
 from __future__ import annotations
@@ -309,3 +312,14 @@ class MyPipeline(RAGPipeline):
         # id được cite (có thể ở hạng 11-15 của context) lên đầu, rồi phần còn lại theo RRF; nộp tối đa 10.
         ids = list(dict.fromkeys(cited + [d.id for d in docs[: self.n_retrieved]]))[: self.n_retrieved]
         return RAGOutput(answer=answer or "Tài liệu hiện không có thông tin để trả lời câu hỏi này.", retrieved_ids=ids)
+
+
+class MyPipelineV9(MyPipeline):
+    """v9: v6 + mẫu trả lời chung (ANSWER_TEMPLATES). Hòa v6 trên dev; dùng để nộp thử public.
+
+    Chạy: neorag run public_test --pipeline neorag.pipelines.pipeline:MyPipelineV9
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("answer_templates", True)
+        super().__init__(**kwargs)

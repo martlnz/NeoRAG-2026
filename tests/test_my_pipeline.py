@@ -1,5 +1,7 @@
 """Test MyPipeline (src/neorag/pipelines/pipeline.py) bằng LLM/embedding giả — không gọi API."""
 
+import re
+
 import numpy as np
 import pytest
 
@@ -284,6 +286,22 @@ def test_parent_child_off_by_default(corpus):
     p = MyPipeline(llm=make_llm("Q: x", "x"), embedder=FakeEmbedder())
     p.index(corpus)
     assert p.child_vectors is None and p.child_bm25 is None
+
+
+# --------------------------------------------------------------------- v9
+def test_generic_templates_opt_in_and_fact_free(corpus):
+    from neorag.pipelines.pipeline import ANSWER_TEMPLATES
+
+    llm = make_llm("Q: x", "Trả lời.\nNGUON: 1")
+    p = MyPipeline(llm=llm, embedder=FakeEmbedder(), answer_templates=True)
+    p.index(corpus)
+    p.run("x")
+    prompt = llm.calls[1][0]["content"]
+    assert "MẪU TRÌNH BÀY THEO KIỂU CÂU HỎI" in prompt
+    assert prompt.index("MẪU TRÌNH BÀY") < prompt.index("TÀI LIỆU:\n")
+    # Mẫu chung không chứa dữ kiện thật (ngày, số liệu, tên CLB cụ thể) → không có gì để chép nhầm.
+    assert not re.search(r"\d", re.sub(r"<[^>]*>", "", ANSWER_TEMPLATES))  # bỏ nhãn chỗ trống <nguồn 1>
+    assert "Lập Trình" not in ANSWER_TEMPLATES and "Multimedia" not in ANSWER_TEMPLATES
 
 
 def test_end_to_end_with_runner(corpus):
