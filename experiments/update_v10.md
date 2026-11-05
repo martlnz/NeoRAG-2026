@@ -90,3 +90,37 @@ Cách ghép trên public, đã kiểm tra bằng code: **22/42 câu có dấu** 
   - file public **giống hệt** `v10_public_test_submission.zip`.
 - **Phương án dự phòng:** `--pipeline neorag.pipelines.pipeline:MyPipelineV6`.
 - Có test khóa cấu hình bản thi: `test_exam_default_is_v10_and_v6_fallback_exists` (77/77 test đạt).
+
+## 6. Có nên làm v11? Chuyên gia đánh giá kỹ thuật nâng cao (đề xuất của người dùng)
+
+Chuyên gia tái tạo được **nhãn judge cho từng câu của v10** từ cache, đủ 226 câu hỏi, và tính lại khớp report. Sau đó mô phỏng từng kỹ thuật **không gọi API**.
+
+**Hiện trạng v10 theo nhãn từng câu:**
+
+| | train | informal |
+|---|---|---|
+| Số câu văn bị chấm `incorrect` (Noise) | 5/163 | 8/148 |
+| Số câu văn không `supported` (Groundedness) | 2 | 2 |
+| Abstention | 11/11 | 11/11 |
+| Câu hỏi thiếu key fact (SP < 1) | 19 | 17 |
+
+**Mô phỏng các kỹ thuật:**
+
+| Kỹ thuật | Ước lượng benchmark (train / informal) | Kết luận |
+|---|---|---|
+| Tự kiểm và cắt câu không có căn cứ (+1 lời gọi LLM) | trần dùng nhãn gold +0.0009 / +0.0017; SP tụt | Không làm |
+| Cắt câu "Tài liệu không ghi/chỉ nêu…" ở cuối | generation −0.0002 / −0.0025 | Không làm |
+| Kiểm tra riêng trước khi từ chối | 0 (đã 11/11) | Không làm |
+| Định tuyến / chọn đáp án v6 hay v9 cho từng câu | −0.0010 / +0.0013 (tín hiệu gần như tung đồng xu) | Không làm |
+| Sparse / multi-vector, top_k thích ứng | trần +0.008 (retrieval đã 0.984–0.986) | Không làm |
+| Trích nguyên văn / liệt kê đủ | trần khoảng +0.003; rủi ro cao (v7) | Không làm |
+| **Xếp lại id nộp**: id được cite đứng trước, sau đó các đoạn còn lại xếp theo độ giống với đoạn được cite | **+0.0014 / +0.0008** (retrieval 0.9864 / 0.9879) | Ứng viên duy nhất chỉ cộng không trừ; lợi khoảng +0.1 điểm |
+
+**Kết luận: đóng băng v10.**
+- Kỹ thuật tốt nhất chỉ thêm khoảng **+0.1 điểm**, trong khi cùng một file nộp lại lệch tới ±3 điểm.
+- Các thay đổi về văn phong câu trả lời đều từng làm hại câu văn nói.
+- Giữ ngân sách (khoảng 1.8 USD) cho ngày Private.
+
+**Quy tắc ngày Private (`docs/submission.md`): lần nộp gần nhất được dùng để tính điểm.** Không thể chọn lần cao nhất trong nhiều lần nộp. Vì vậy:
+- Chạy một lần, kiểm tra file (hợp lệ, 42 câu, không có câu rỗng, dòng `Pipeline` đúng), rồi nộp một lần.
+- Các lượt còn lại chỉ dùng khi lần đầu bị Failed.
