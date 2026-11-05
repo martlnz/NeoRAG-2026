@@ -57,7 +57,7 @@ Sự cố trong lúc chạy: lần chấm `train_informal` đầu tiên bị d�
 
 ### Điểm Public Test (trang thi aichallenge)
 
-_(chờ nộp)_
+**88.43**. Đây là mức cao nhất từ trước đến nay (v5 ≈ 87, v4 84.94, v2 87.13 / 84.23), khớp với việc v6 tăng trên cả train lẫn train_informal. Biên nhiễu của judge vẫn khoảng ±3.
 
 ### So với các bản trước
 
@@ -66,7 +66,7 @@ _(chờ nộp)_
 | **train** | 0.9235 | 0.9173 | **0.9220** | +0.0047 |
 | **train_informal** | 0.8823 | 0.9026 | **0.9083** | +0.0057 |
 | Trung bình hai bộ | 0.9029 | 0.9100 | **0.9152** | +0.0052 |
-| Public | 84.94 | ≈87 | _chờ_ | |
+| Public | 84.94 | ≈87 | **88.43** | +1.4 |
 | Retrieval train / informal | 0.981 / 0.962 | 0.984 / 0.980 | 0.980 / **0.986** | |
 | ROUGE-L train / informal | 0.644 / 0.629 | 0.644 / 0.624 | **0.662 / 0.660** | +0.018 / +0.036 |
 | String Presence train / informal | 0.935 / 0.890 | 0.936 / 0.911 | 0.910 / 0.905 | **−0.026 / −0.006** |
