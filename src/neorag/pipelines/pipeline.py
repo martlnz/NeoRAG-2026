@@ -196,14 +196,17 @@ class GatewayEmbedder:
 class MyPipeline(RAGPipeline):
     def __init__(
         self, top_k: int = 15, n_retrieved: int = 10, llm=None, embedder=None, fewshot_ids=(),
-        answer_templates: bool = False, parent_child: bool = False,
+        answer_templates: bool | str = False, parent_child: bool = False,
     ):
         # parent_child tắt mặc định: v8 thử bật và bị loại trên train_informal (experiments/update_v8.md).
         self.parent_child = parent_child
         # Few-shot tắt mặc định: v7 thử bật FEWSHOT_IDS và bị loại (xem experiments/update_v7.md).
         self.top_k = top_k  # số doc đưa vào prompt
         self.n_retrieved = n_retrieved  # số doc nộp để chấm retrieval (tối đa 10)
-        self.examples = build_examples(fewshot_ids) + (ANSWER_TEMPLATES if answer_templates else "")
+        # answer_templates: False (v6) | True (mọi câu, v9) | "accented" (chỉ câu có dấu, v10)
+        self.answer_templates = answer_templates
+        self.fewshot_block = build_examples(fewshot_ids)
+        self.examples = self.fewshot_block + (ANSWER_TEMPLATES if answer_templates is True else "")
         # CLI đọc `llm_model` và `embedder` để in thông tin. `llm`/`embedder` cho phép thay bằng bản giả khi test.
         self.llm_model = os.getenv("LLM_MODEL", "claude-haiku-5-5")
         self.llm = llm or LLMClient(cache_path=".cache/pipeline.sqlite")
@@ -279,8 +282,12 @@ class MyPipeline(RAGPipeline):
     # ------------------------------------------------------------- generation
     def generate(self, query: str, rewritten: str, docs: list[Document]) -> tuple[str, list[int]]:
         context = "\n\n".join(f"[{d.id}] ({d.club} – {d.topic}) {d.text}" for d in docs[: self.top_k])
+        examples = self.examples
+        if self.answer_templates == "accented" and not is_unaccented(query):
+            # Mẫu chung chỉ có lợi với câu viết chuẩn; câu văn nói giữ nguyên prompt v6 (xem update_v9.md).
+            examples = self.fewshot_block + ANSWER_TEMPLATES
         prompt = ANSWER_PROMPT.format(
-            context=context, query=query, rewritten=rewritten, examples=self.examples
+            context=context, query=query, rewritten=rewritten, examples=examples
         )
         answer, cited = self._parse_answer(
             self.llm.chat([{"role": "user", "content": prompt}], model=self.llm_model), docs
@@ -322,4 +329,16 @@ class MyPipelineV9(MyPipeline):
 
     def __init__(self, **kwargs):
         kwargs.setdefault("answer_templates", True)
+        super().__init__(**kwargs)
+
+
+class MyPipelineV10(MyPipeline):
+    """v10: v6, nhưng câu hỏi CÓ DẤU dùng thêm mẫu trả lời chung (lợi trên train ở v9);
+    câu văn nói / không dấu giữ nguyên prompt v6 (mẫu chung gây hại trên train_informal và public).
+
+    Chạy: neorag run <split> --pipeline neorag.pipelines.pipeline:MyPipelineV10
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("answer_templates", "accented")
         super().__init__(**kwargs)

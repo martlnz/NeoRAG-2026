@@ -317,3 +317,17 @@ def test_loadable_via_cli_spec():
         "neorag.pipelines.pipeline:MyPipeline", llm=FakeLLM(), embedder=FakeEmbedder()
     )
     assert isinstance(p, MyPipeline) and isinstance(p, RAGPipeline)
+
+
+# --------------------------------------------------------------------- v10
+def test_v10_templates_only_for_accented_queries(corpus):
+    from neorag.pipelines.pipeline import MyPipelineV10
+
+    llm = make_llm("Q: x", "Trả lời.\nNGUON: 1")
+    p = MyPipelineV10(llm=llm, embedder=FakeEmbedder())
+    p.index(corpus)
+    p.run("CLB Lập Trình PTIT thành lập khi nào?")
+    p.run("clb lap trinh thanh lap khi nao")
+    accented, unaccented = llm.calls[1][0]["content"], llm.calls[3][0]["content"]
+    assert "MẪU TRÌNH BÀY" in accented
+    assert "MẪU TRÌNH BÀY" not in unaccented
