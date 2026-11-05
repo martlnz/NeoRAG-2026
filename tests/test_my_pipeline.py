@@ -211,8 +211,8 @@ def test_answer_prompt_has_v6_rules():
 
     assert "Tài liệu hiện không có thông tin về" in ANSWER_PROMPT
     assert "Không suy ra khẳng định phủ định" in ANSWER_PROMPT
-    # v8: từ chối đúng một câu, không còn câu ngữ cảnh "Tài liệu chỉ nêu"
-    assert "đúng MỘT câu" in ANSWER_PROMPT and "Tài liệu chỉ nêu" not in ANSWER_PROMPT
+    # v8 (từ chối đúng một câu) bị loại → quay về quy tắc v6
+    assert "Tài liệu chỉ nêu" in ANSWER_PROMPT
     assert '"Có, ..."' in ANSWER_PROMPT and "Theo <nguồn" in ANSWER_PROMPT
     assert "tự đứng được" in REWRITE_PROMPT and "có những ban nào" in REWRITE_PROMPT
 
@@ -259,7 +259,7 @@ def test_parent_child_index_and_max_pooling():
         Document(1, "CLB Lập Trình PTIT", "Giải thưởng", "Giải Nhất ICPC PTIT 2022; Giải Ba Chuyên Tin 2022; Huy chương Vàng Olympic Toán 2023."),
         Document(2, "CLB Multimedia PTIT", "Cơ cấu", "Các ban gồm Ban Nội dung, Ban Đối ngoại và Ban Sự kiện."),
     ]
-    p = MyPipeline(llm=make_llm("Q: x", "x\nNGUON: 1"), embedder=FakeEmbedder())
+    p = MyPipeline(llm=make_llm("Q: x", "x\nNGUON: 1"), embedder=FakeEmbedder(), parent_child=True)
     p.index(docs)
     assert list(p.child_parent) == [0, 0, 0, 1]  # đoạn danh sách tách theo ";" → 3 child
     pooled = p._to_parent(np.array([0.1, 0.9, 0.2, 0.5], dtype=np.float32))
@@ -274,10 +274,16 @@ def test_child_match_ranks_its_parent_first():
         Document(2, "CLB Lập Trình PTIT", "Sự kiện", "Coding Fest là sự kiện thường niên của trường dành cho sinh viên."),
         Document(3, "CLB Multimedia PTIT", "Giới thiệu", "CLB Multimedia PTIT thành lập ngày 10/11/2012."),
     ]
-    p = MyPipeline(llm=make_llm("Q: Ai là quán quân Coding Fest 2025?", "x"), embedder=FakeEmbedder())
+    p = MyPipeline(llm=make_llm("Q: Ai là quán quân Coding Fest 2025?", "x"), embedder=FakeEmbedder(), parent_child=True)
     p.index(docs)
     ranked = p.retrieve("quan quan coding fest 2025", ["Ai là quán quân Coding Fest 2025?"])
     assert ranked[0].id == 1
+
+
+def test_parent_child_off_by_default(corpus):
+    p = MyPipeline(llm=make_llm("Q: x", "x"), embedder=FakeEmbedder())
+    p.index(corpus)
+    assert p.child_vectors is None and p.child_bm25 is None
 
 
 def test_end_to_end_with_runner(corpus):

@@ -1,6 +1,7 @@
-# update_v8 — Từ chối đúng một câu + Parent-child retrieval (ĐANG DỞ)
+# update_v8 — Từ chối đúng một câu + Parent-child retrieval (BỊ LOẠI, quay về v6)
 
-- **Trạng thái:** ⏸️ Đang dở. Đã dừng vì người dùng cần tắt máy. Bộ train đã chấm xong, **train_informal và public chưa chấm**.
+- **Trạng thái:** ❌ **Không dùng.** Sau khi mở máy lại đã chấm xong train_informal: v8 kém v6. Code khôi phục về hành vi v6; parent-child giữ lại dưới dạng tùy chọn `parent_child=True` (tắt mặc định).
+- File public v8 (chỉ để lưu hồ sơ, **không nộp**): `experiments/submissions/v8_public_test_submission.zip`
 - **Bản nộp an toàn hiện tại vẫn là v6:** `experiments/submissions/v6_public_test_submission.zip` (public 88.43).
 
 ## 1. Đã làm gì (so với v6)
@@ -36,9 +37,26 @@ Cross-encoder `bge-reranker-v2-m3` chạy trên CPU quá chậm: hơn 15 phút v
 - Benchmark score: **0.9229** (v6: 0.9220)
 
 ### train_informal
-_(chưa chấm)_
+| string_presence | rouge_l | bleu_4 | groundedness | response_relevancy | noise_sensitivity | abstention |
+|---|---|---|---|---|---|---|
+| 0.8876 | 0.6319 | 0.4914 | 1.0000 | 0.4704 | 0.0393 | 0.9091 |
 
-## 4. Việc cần làm khi mở máy lại
+- Retrieval score: **0.9790** (v6: 0.9864)
+- Generation score: **0.8100** (v6: 0.8301)
+- Benchmark score: **0.8945** (v6: **0.9083**, tức −0.0138)
+
+### Kết luận
+| | v6 | v8 |
+|---|---|---|
+| train | 0.9220 | 0.9229 (ngang) |
+| **train_informal** | **0.9083** | 0.8945 (−0.0138) |
+
+1. **Parent-child có lợi ở xếp hạng thô** (+0.02 retrieval score), nhưng **không chuyển thành điểm cuối**. R@15 không đổi (khoảng 0.985), và bước LLM trích nguồn vốn đã đẩy doc đúng lên đầu, nên phần thắng ở MRR/NDCG thô bị san bằng. Retrieval cuối trên informal còn giảm nhẹ (0.986 → 0.979). Child có header đổi thứ tự 15 doc đưa vào prompt, khiến LLM trích nguồn khác đi.
+2. **Abstention trên informal lại trượt ở inf-0049** ("vòng Training MPC Gen 14 kéo dài bao lâu"). Lần này LLM coi đây là câu thiếu một phần: trả lời ngày bắt đầu rồi nói "không ghi thời lượng". Đáp án chuẩn coi đây là câu không có đáp án. Đây là câu ranh giới, đã trượt cả ở v7, nên quy tắc từ chối đúng một câu không giải quyết được.
+3. String Presence trên informal giảm (0.905 → 0.888). Noise trên train thì tốt hơn rõ (0.048 → 0.022).
+4. **Bài học:** cải tiến ở xếp hạng thô phải được xác nhận bằng điểm end-to-end. Khi retrieval cuối đã khoảng 0.98, nút thắt không còn ở retrieval.
+
+## 4. (Đã làm) Việc cần làm khi mở máy lại
 ```powershell
 cd D:\NeoRAG-2026
 .venv\Scripts\neorag.exe run train_informal --pipeline neorag.pipelines.pipeline:MyPipeline   # so với v6: 0.9083

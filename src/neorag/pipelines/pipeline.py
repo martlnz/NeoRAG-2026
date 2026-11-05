@@ -28,7 +28,7 @@ v6:
   - Rewrite: câu con tự đứng được (lọc "CLB đó/này"), câu "nên vào CLB nào" → câu con theo CLB,
     câu "ban nào lo X" → thêm câu con hỏi danh sách ban.
 v7 (bị loại): few-shot tĩnh từ train — xem experiments/update_v7.md; few-shot tắt mặc định.
-v8:
+v8 (bị loại; các phần được giữ dưới dạng tùy chọn tắt mặc định):
   - Từ chối đúng MỘT câu "Tài liệu hiện không có thông tin về ...", bỏ câu ngữ cảnh "Tài liệu chỉ nêu ..."
     (câu không có đáp án chỉ chấm Abstention; câu ngữ cảnh chỉ thêm rủi ro bị chấm 0).
   - Parent-child retrieval: child = từng câu (+ header club|topic), max-pooling về đoạn cha,
@@ -81,7 +81,7 @@ Quy tắc:
 - Chép nguyên văn cụm then chốt từ tài liệu: tên riêng, ngày tháng, số kèm đơn vị, tên giải/ban/đội/sự kiện (kể cả tên tiếng Anh như biệt danh của ban), tên đơn vị; không diễn đạt lại các cụm này.
 - Câu hỏi so sánh hoặc nhiều ý: mỗi ý một mệnh đề ngắn, trả lời đủ từng ý, kể cả khi thông tin nằm rải rác ở nhiều đoạn.
 - Không viết câu kiểu "Tài liệu không nêu/không ghi chi tiết ..." về những khía cạnh câu hỏi không hỏi.
-- Khi chính điều được hỏi không có trong tài liệu: câu đầu bắt đầu đúng bằng "Tài liệu hiện không có thông tin về ...". Không suy ra khẳng định phủ định (như "X không có ...") chỉ vì tài liệu không nhắc tới. Khi đó chỉ trả lời đúng MỘT câu đó, không thêm câu nào khác, không nêu thông tin về CLB hay chủ đề khác; không đoán.
+- Khi chính điều được hỏi không có trong tài liệu: câu đầu bắt đầu đúng bằng "Tài liệu hiện không có thông tin về ...". Không suy ra khẳng định phủ định (như "X không có ...") chỉ vì tài liệu không nhắc tới. Có thể thêm tối đa một câu bắt đầu bằng "Tài liệu chỉ nêu ..." với thông tin liên quan gần nhất; không đoán.
 - Nếu chỉ một phần câu hỏi không có trong tài liệu: trả lời phần có trước, rồi nói "tài liệu không ghi ..." cho phần còn lại.
 
 Dòng cuối cùng ghi: NGUON: <id của MỌI đoạn chứa thông tin trả lời câu hỏi, kể cả đoạn trùng ý, xếp từ liên quan nhất, cách nhau dấu phẩy>
@@ -193,8 +193,10 @@ class GatewayEmbedder:
 class MyPipeline(RAGPipeline):
     def __init__(
         self, top_k: int = 15, n_retrieved: int = 10, llm=None, embedder=None, fewshot_ids=(),
-        answer_templates: bool = False,
+        answer_templates: bool = False, parent_child: bool = False,
     ):
+        # parent_child tắt mặc định: v8 thử bật và bị loại trên train_informal (experiments/update_v8.md).
+        self.parent_child = parent_child
         # Few-shot tắt mặc định: v7 thử bật FEWSHOT_IDS và bị loại (xem experiments/update_v7.md).
         self.top_k = top_k  # số doc đưa vào prompt
         self.n_retrieved = n_retrieved  # số doc nộp để chấm retrieval (tối đa 10)
@@ -213,7 +215,7 @@ class MyPipeline(RAGPipeline):
         # Parent-child: child = từng câu (đoạn danh sách tách thêm theo ";"), kèm header club|topic để
         # không mất ngữ cảnh. Tìm trên child (không bị "trung bình hóa" nhiều ý), điểm đoạn cha = max child.
         child_texts, parents = [], []
-        for i, d in enumerate(corpus):
+        for i, d in enumerate(corpus if self.parent_child else []):
             for sent in split_sentences(d.text.replace("; ", ".\n")):
                 if len(sent) >= 15:
                     child_texts.append(f"{d.club} | {d.topic}: {sent}")
