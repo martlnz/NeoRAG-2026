@@ -22,6 +22,11 @@ v3.1 (chống lỗi, không đổi prompt → không đổi điểm):
 v5:
   - Câu gốc không dấu: bỏ dense (bge-m3 vô dụng với câu không dấu), chỉ giữ BM25 bỏ dấu.
   - Đưa top-15 doc vào prompt (vẫn nộp 10 id; doc được cite ở hạng 11-15 lên đầu).
+v6:
+  - Từ chối chuẩn hóa ("Tài liệu hiện không có thông tin về ..."), không suy ra khẳng định phủ định.
+  - Mở đầu "Có, / Không, ..." cho câu có/không; "Theo <nguồn kèm năm>, ..." khi tài liệu ghi nguồn.
+  - Rewrite: câu con tự đứng được (lọc "CLB đó/này"), câu "nên vào CLB nào" → câu con theo CLB,
+    câu "ban nào lo X" → thêm câu con hỏi danh sách ban.
 """
 
 from __future__ import annotations
@@ -48,7 +53,10 @@ Lưu ý nghĩa: "chương trình", "plan", "chạy chương trình" thường l�
 Nhiệm vụ:
 1. Viết lại câu hỏi thành tiếng Việt đầy đủ dấu, rõ ràng, nêu tên CLB chuẩn nếu xác định được. Giữ đúng ý định và mọi chi tiết người hỏi nêu; không đổi nghĩa, không thêm thông tin mà câu hỏi không có.
 2. Nếu câu hỏi gồm nhiều ý hoặc so sánh nhiều CLB, viết thêm tối đa 3 câu hỏi con, mỗi câu một ý hoặc một CLB. Với câu so sánh/xếp hạng giữa các CLB, mỗi câu con hỏi đúng thuộc tính đó cho từng CLB (ví dụ "CLB Multimedia PTIT được thành lập ngày nào?").
-3. Không nhắc tới CLB mà người hỏi không nêu.
+3. Mỗi câu hỏi con phải tự đứng được: nêu rõ tên CLB, không dùng "CLB đó", "CLB này", "ở đó".
+4. Câu hỏi kiểu "thích X thì nên vào CLB nào" (không nêu CLB): mỗi câu con hỏi CLB đó có hoạt động/nhánh/ban liên quan tới X không, một câu cho mỗi CLB phù hợp.
+5. Câu hỏi "có ban/bộ phận/ai lo việc X không": thêm câu con "CLB ... có những ban nào và mỗi ban phụ trách gì?".
+6. Không nhắc tới CLB mà người hỏi không nêu, trừ trường hợp ở mục 4.
 
 Định dạng bắt buộc: mỗi câu hỏi trên một dòng, bắt đầu bằng "Q: ", dòng đầu là câu viết lại. Câu hỏi chỉ có một ý thì in đúng một dòng. Không in gì khác.
 
@@ -57,14 +65,17 @@ CÂU HỎI: {query}"""
 ANSWER_PROMPT = """Bạn là trợ lý tư vấn về các CLB thuộc cộng đồng S2B của PTIT. Chỉ dùng TÀI LIỆU bên dưới.
 
 Quy tắc:
-- Trả lời 1-2 câu văn xuôi, tối đa khoảng 60 từ; không markdown, không in đậm, không gạch đầu dòng, không chào hỏi.
+- Trả lời 1-2 câu văn xuôi, tối đa khoảng 60 từ; không markdown, không in đậm, không gạch đầu dòng, không chào hỏi. Chỉ viết câu thứ hai khi câu hỏi có ý thứ hai.
 - Câu đầu lặp lại chủ thể của câu hỏi và trả lời thẳng (ví dụ "CLB Lập Trình PTIT được thành lập ngày ...").
+- Câu hỏi có/không: mở đầu bằng "Có, ...", "Không, ...", "Đúng, ..." hoặc "Chưa, ..." (dấu phẩy, không dùng dấu chấm), rồi nêu chủ thể và lý do.
+- Khi đoạn tài liệu tự ghi nguồn (ví dụ "theo Phòng truyền thống", "theo bài tuyển thành viên ngày ...", "theo bài giới thiệu năm ..."), mở câu bằng "Theo <nguồn đó, chép nguyên văn kèm năm/ngày>, ...".
 - Gọi tên CLB đúng một dạng: "CLB Lập Trình PTIT", "CLB Multimedia PTIT", "CLB Nhà Sáng Tạo Game PTIT (GCC)"; không dùng tên dài hay tên tiếng Anh của CLB nếu không được hỏi.
 - Chỉ nêu thông tin mà câu hỏi hỏi tới; không thêm "ngoài ra", hashtag hay bối cảnh khi không được hỏi. Khi câu hỏi hỏi đăng ký/liên hệ ở đâu, qua kênh nào thì nêu đúng link, email, website.
 - Chép nguyên văn cụm then chốt từ tài liệu: tên riêng, ngày tháng, số kèm đơn vị, tên giải/ban/đội/sự kiện (kể cả tên tiếng Anh như biệt danh của ban), tên đơn vị; không diễn đạt lại các cụm này.
 - Câu hỏi so sánh hoặc nhiều ý: mỗi ý một mệnh đề ngắn, trả lời đủ từng ý, kể cả khi thông tin nằm rải rác ở nhiều đoạn.
-- Không viết câu kiểu "Tài liệu không nêu/không ghi chi tiết ..." về những khía cạnh câu hỏi không hỏi. Chỉ khi chính điều được hỏi không có trong tài liệu mới nói ngắn gọn điều đó trong cùng câu trả lời.
-- Khi không đoạn nào liên quan: trả lời "Tài liệu hiện không có thông tin về ..." và không đoán.
+- Không viết câu kiểu "Tài liệu không nêu/không ghi chi tiết ..." về những khía cạnh câu hỏi không hỏi.
+- Khi chính điều được hỏi không có trong tài liệu: câu đầu bắt đầu đúng bằng "Tài liệu hiện không có thông tin về ...". Không suy ra khẳng định phủ định (như "X không có ...") chỉ vì tài liệu không nhắc tới. Có thể thêm tối đa một câu bắt đầu bằng "Tài liệu chỉ nêu ..." với thông tin liên quan gần nhất; không đoán.
+- Nếu chỉ một phần câu hỏi không có trong tài liệu: trả lời phần có trước, rồi nói "tài liệu không ghi ..." cho phần còn lại.
 
 Dòng cuối cùng ghi: NGUON: <id của MỌI đoạn chứa thông tin trả lời câu hỏi, kể cả đoạn trùng ý, xếp từ liên quan nhất, cách nhau dấu phẩy>
 
@@ -75,6 +86,7 @@ CÂU HỎI GỐC: {query}
 (Hiểu là: {rewritten})"""
 
 RRF_K = 60
+DANGLING = re.compile(r"\b(?:CLB|câu lạc bộ) (?:đó|này|ấy)\b|\bở đó\b", flags=re.IGNORECASE)
 # Dòng meta LLM đôi khi in kèm khi viết lại câu hỏi (không phải câu hỏi) → loại khỏi retrieval.
 META = re.compile(
     r"không cần (?:tách|câu hỏi con)|chỉ có một ý|chỉ có 1 ý|viết lại như sau|các câu hỏi con|^lưu ý|^ghi chú",
@@ -159,6 +171,8 @@ class MyPipeline(RAGPipeline):
             qs = [re.sub(r"^\s*(?:\d+[.)]|[-*•])\s*", "", line).strip() for line in out.splitlines()]
         qs = [re.sub(r"^(?:câu (?:viết lại|hỏi con)[^:]*:)\s*", "", q, flags=re.IGNORECASE) for q in qs]
         qs = [q for q in qs if len(q) > 3 and not META.search(q)]
+        # Câu con phải tự đứng được: câu con chỉ trỏ "CLB đó/này" sẽ truy xuất lạc → bỏ (giữ câu đầu).
+        qs = qs[:1] + [q for q in qs[1:] if not DANGLING.search(q)]
         return qs[:4] or [query]
 
     # -------------------------------------------------------------- retrieval

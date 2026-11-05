@@ -191,6 +191,34 @@ def test_context_has_15_docs_and_late_citation_moves_to_front():
     assert out.retrieved_ids[0] == late and len(out.retrieved_ids) == 10
 
 
+# --------------------------------------------------------------------- v6
+def test_dangling_subqueries_are_dropped_but_first_line_kept(corpus):
+    out = (
+        "Q: Em thích vẽ và làm game thì nên tham gia CLB nào?\n"
+        "Q: CLB Nhà Sáng Tạo Game PTIT (GCC) có nhánh vẽ không?\n"
+        "Q: Khi tham gia CLB đó em sẽ được học những phần mềm gì?"
+    )
+    p = make_pipeline(corpus, rewrite=out, answer="")
+    assert p.rewrite("x") == [
+        "Em thích vẽ và làm game thì nên tham gia CLB nào?",
+        "CLB Nhà Sáng Tạo Game PTIT (GCC) có nhánh vẽ không?",
+    ]
+
+
+def test_answer_prompt_has_v6_rules():
+    from neorag.pipelines.pipeline import ANSWER_PROMPT, REWRITE_PROMPT
+
+    assert "Tài liệu hiện không có thông tin về" in ANSWER_PROMPT
+    assert "Không suy ra khẳng định phủ định" in ANSWER_PROMPT
+    assert '"Có, ..."' in ANSWER_PROMPT and "Theo <nguồn" in ANSWER_PROMPT
+    assert "tự đứng được" in REWRITE_PROMPT and "có những ban nào" in REWRITE_PROMPT
+
+
+def test_yes_no_opening_is_preserved(corpus):
+    p = make_pipeline(corpus, rewrite="Q: x", answer="Có, CLB Lập Trình PTIT nhận sinh viên năm nhất.\nNGUON: 1")
+    assert p.run("x").answer == "Có, CLB Lập Trình PTIT nhận sinh viên năm nhất."
+
+
 def test_end_to_end_with_runner(corpus):
     p = make_pipeline(corpus, rewrite="Q: ProPTIT thành lập khi nào?", answer="Ngày 09/10/2011.\nNGUON: 1")
     preds = predict(p, [Query("q1", "proptit thanh lap khi nao")], max_retrieved=10)
