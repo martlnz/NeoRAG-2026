@@ -97,7 +97,47 @@ Public Test quá nhiễu để so sánh các bản: cùng một file v2 được
 3. Latency tăng nhẹ vì prompt dài hơn (15 doc).
 4. Judge trên public dao động khoảng ±3 điểm giữa các lần nộp cùng một file, nên điểm public của một lần nộp không đủ để kết luận bản nào hơn.
 
-## 4. Kết luận và bản thi Private
+> **Đính chính (sau phân tích của chuyên gia cho v6):** train-0103 **không hẳn là judge nhiễu**. Câu trả lời v5 khẳng định "Cộng đồng S2B *không có* fanpage hay website riêng", tức một phát biểu phủ định do tự suy ra, chứ không nói "tài liệu không có thông tin". Bản informal của cùng câu hỏi mở bằng "Tài liệu hiện không có thông tin…" thì đạt điểm. public-0002 cũng mắc đúng kiểu này. Lỗi này được xử lý ở v6.
+
+## 4. Hướng cải thiện cho v6 (chuyên gia đề xuất)
+
+**Từ ≈87 public ra từng metric.** Trộn train và train_informal 50/50 thì dev đạt ≈91.0, nên public thấp hơn dev khoảng 3–5 điểm. Ước tính phần mất (không đo trực tiếp được):
+
+| Phần | Public ước tính | Mất so với dev |
+|---|---|---|
+| Retrieval | ~0.955 (câu mới, ví dụ public-0003 không lấy được doc 94) | ~1.3 điểm |
+| SP | ~0.86 | ~0.5 điểm |
+| ROUGE | ~0.58 | ~0.45 điểm |
+| Abstention | 1 câu trượt trên khoảng 4 câu không có đáp án | **~2.1 điểm** |
+
+Public chỉ có khoảng 3–4 câu không có đáp án, nên mỗi lần judge đổi nhãn một câu là lệch khoảng 2.1 điểm. Riêng điều này gần như giải thích được mức nhiễu ±3. Không metric nào một mình mang lại +3 điểm đo được trên dev.
+
+**ROUGE-L**: độ dài và cấu trúc câu trả lời đã khớp đáp án chuẩn, phần chênh còn lại là do diễn đạt khác chữ.
+- 30% đáp án chuẩn mở bằng "Theo <nguồn>" (Phòng truyền thống, bài tuyển thành viên ngày…), trong khi chỉ 2 câu trả lời của pipeline làm vậy. Mô phỏng thêm phần mở đầu này cho ROUGE +0.012, và kéo theo key fact về năm của nguồn (train-0014).
+- 20% đáp án chuẩn mở bằng "Có/Không", còn pipeline thì không câu nào.
+
+**Noise / String Presence**:
+- Câu thứ hai thêm ý lấy từ doc bên cạnh: 0057, 0065, 0075, 0109, 0124, 0125.
+- Vừa nói "không có thông tin" vừa trả lời: inf-0027, inf-0043.
+- Không chép nguyên văn cụm then chốt: "không ghi", "CDIT", "tri ân".
+
+**Spec v6** (3 thay đổi, chạy lại toàn bộ một lần):
+1. **Định dạng từ chối**:
+   - Khi chính điều được hỏi không có trong tài liệu, câu đầu bắt đầu đúng bằng "Tài liệu hiện không có thông tin về …".
+   - Không suy ra khẳng định phủ định chỉ vì tài liệu không nhắc tới.
+   - Tối đa một câu ngữ cảnh, mở bằng "Tài liệu chỉ nêu …".
+2. **Cách mở đầu câu trả lời**:
+   - Câu hỏi có/không: mở bằng "Có, …/Không, …", vẫn kèm chủ thể. Dùng dấu phẩy chứ không dùng "Có." để không bị tách thành một câu riêng khi chấm.
+   - Khi tài liệu tự ghi nguồn: mở bằng "Theo <nguồn kèm năm, chép nguyên văn>, …".
+   - Câu thứ hai chỉ viết khi câu hỏi có ý thứ hai.
+3. **Mở rộng rewrite (C)**:
+   - Mỗi câu con tự đứng được, nêu tên CLB.
+   - Câu "nên vào CLB nào nếu thích X": sinh một câu con cho từng CLB.
+   - Câu "có ban nào lo việc X": thêm câu con "CLB … có những ban nào?" để sửa public-0003 (doc 94).
+
+**Kỳ vọng**: train +0.006–0.010, train_informal +0.004–0.007, public +0.5–1.5 điểm về trung bình. **Đạt trên 90 public chỉ có xác suất khoảng 20–30% mỗi lần nộp**, tức là may rủi chứ không phải cải tiến đo được.
+
+## 5. Kết luận và bản thi Private
 
 **Chốt v5 làm bản thi Private Test.** Lý do: retrieval cao nhất trên cả hai bộ, tốt nhất với câu văn nói, và vẫn giữ toàn bộ phần chống lỗi của v4. Checklist ngày 08/11 vẫn như trong `update_v4.md`:
 - Chạy `neorag run private_test --pipeline neorag.pipelines.pipeline:MyPipeline`.
