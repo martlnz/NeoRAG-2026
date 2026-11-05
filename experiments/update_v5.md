@@ -65,7 +65,7 @@ Public Test quá nhiễu để so sánh các bản: cùng một file v2 được
 
 ### Điểm Public Test (trang thi aichallenge)
 
-_(chờ nộp)_
+**≈ 87** (người dùng báo). Các bản trước: v2 87.13 / 84.23, v3 84.81, v4 84.94. Đây là mức cao nhất nếu tính trung bình, nhưng vẫn nằm trong biên nhiễu khoảng ±3 của judge.
 
 ### So với v4
 
