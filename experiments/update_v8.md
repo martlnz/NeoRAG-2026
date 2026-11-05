@@ -50,6 +50,9 @@ Cross-encoder `bge-reranker-v2-m3` chạy trên CPU quá chậm: hơn 15 phút v
 |---|---|---|
 | train | 0.9220 | 0.9229 (ngang) |
 | **train_informal** | **0.9083** | 0.8945 (−0.0138) |
+| **Public (trang thi)** | **88.43** | 88.15 (người dùng nộp thử) |
+
+Điểm public của v8 thấp hơn v6 một chút (−0.28, nằm trong biên nhiễu ±3), nhất quán với kết luận trên dev. Quyết định giữ v6 được xác nhận.
 
 1. **Parent-child có lợi ở xếp hạng thô** (+0.02 retrieval score), nhưng **không chuyển thành điểm cuối**. R@15 không đổi (khoảng 0.985), và bước LLM trích nguồn vốn đã đẩy doc đúng lên đầu, nên phần thắng ở MRR/NDCG thô bị san bằng. Retrieval cuối trên informal còn giảm nhẹ (0.986 → 0.979). Child có header đổi thứ tự 15 doc đưa vào prompt, khiến LLM trích nguồn khác đi.
 2. **Abstention trên informal lại trượt ở inf-0049** ("vòng Training MPC Gen 14 kéo dài bao lâu"). Lần này LLM coi đây là câu thiếu một phần: trả lời ngày bắt đầu rồi nói "không ghi thời lượng". Đáp án chuẩn coi đây là câu không có đáp án. Đây là câu ranh giới, đã trượt cả ở v7, nên quy tắc từ chối đúng một câu không giải quyết được.
