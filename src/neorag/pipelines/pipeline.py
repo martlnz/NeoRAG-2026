@@ -33,9 +33,13 @@ v8 (bị loại; các phần được giữ dưới dạng tùy chọn tắt m�
     (câu không có đáp án chỉ chấm Abstention; câu ngữ cảnh chỉ thêm rủi ro bị chấm 0).
   - Parent-child retrieval: child = từng câu (+ header club|topic), max-pooling về đoạn cha,
     gộp RRF với ranking đoạn nguyên (dense + BM25). Nộp id và đưa toàn văn đoạn cha cho LLM.
-v9 (hòa v6 → không dùng; mẫu chung giữ dưới dạng tùy chọn answer_templates=True):
+v9 (hòa v6; mẫu chung cho mọi câu — tùy chọn answer_templates=True, class MyPipelineV9):
   - Bật ANSWER_TEMPLATES: 8 mẫu trả lời CHUNG (có chỗ trống <...>) rút từ khuôn đáp án train,
     không chứa câu hỏi/dữ kiện thật → không rò rỉ, không có gì để LLM chép nhầm (khác v7).
+v10 (BẢN THI — mặc định của MyPipeline):
+  - v6 + mẫu trả lời chung CHỈ cho câu hỏi có dấu (answer_templates="accented"); câu không dấu giữ prompt v6.
+  - Dev: train 0.9269 / informal 0.9083 (v6: 0.9220 / 0.9083). Public TB: v10 87.02 (2 lần), v6 87.43 (3 lần) — trong nhiễu.
+  - Dự phòng: class MyPipelineV6.
 """
 
 from __future__ import annotations
@@ -196,7 +200,7 @@ class GatewayEmbedder:
 class MyPipeline(RAGPipeline):
     def __init__(
         self, top_k: int = 15, n_retrieved: int = 10, llm=None, embedder=None, fewshot_ids=(),
-        answer_templates: bool | str = False, parent_child: bool = False,
+        answer_templates: bool | str = "accented", parent_child: bool = False,
     ):
         # parent_child tắt mặc định: v8 thử bật và bị loại trên train_informal (experiments/update_v8.md).
         self.parent_child = parent_child
@@ -341,4 +345,15 @@ class MyPipelineV10(MyPipeline):
 
     def __init__(self, **kwargs):
         kwargs.setdefault("answer_templates", "accented")
+        super().__init__(**kwargs)
+
+
+class MyPipelineV6(MyPipeline):
+    """Phương án dự phòng: đúng hành vi v6 (không dùng mẫu trả lời chung).
+
+    Chạy: neorag run private_test --pipeline neorag.pipelines.pipeline:MyPipelineV6
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("answer_templates", False)
         super().__init__(**kwargs)

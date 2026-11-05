@@ -331,3 +331,15 @@ def test_v10_templates_only_for_accented_queries(corpus):
     accented, unaccented = llm.calls[1][0]["content"], llm.calls[3][0]["content"]
     assert "MẪU TRÌNH BÀY" in accented
     assert "MẪU TRÌNH BÀY" not in unaccented
+
+
+def test_exam_default_is_v10_and_v6_fallback_exists(corpus):
+    """Khóa cấu hình bản thi Private: MyPipeline = v10; MyPipelineV6 = dự phòng không có mẫu chung."""
+    from neorag.pipelines.pipeline import MyPipelineV6
+
+    for cls, expect_templates in ((MyPipeline, True), (MyPipelineV6, False)):
+        llm = make_llm("Q: x", "Trả lời.\nNGUON: 1")
+        p = cls(llm=llm, embedder=FakeEmbedder())
+        p.index(corpus)
+        p.run("CLB Lập Trình PTIT thành lập khi nào?")
+        assert ("MẪU TRÌNH BÀY" in llm.calls[1][0]["content"]) is expect_templates

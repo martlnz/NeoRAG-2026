@@ -74,3 +74,19 @@ Cách ghép trên public, đã kiểm tra bằng code: **22/42 câu có dấu** 
 ### Bài học
 1. **Không kết luận từ một lần nộp public.** Cần lấy trung bình nhiều lần, hoặc dựa vào dev.
 2. Bộ dev có nhiều câu hơn (226 so với 42) và cache judge cố định, nên ổn định hơn public để so sánh các bản.
+
+## 5. Kết quả nộp nhiều lần và quyết định cuối cùng
+
+| Bản | Các lần nộp public | Trung bình | Số lần |
+|---|---|---|---|
+| v6 | 88.43, 88.39, 85.48 | **87.43** | 3 |
+| v10 | 85.53, 88.51 | **87.02** | 2 |
+| v9 | 86.05 | 86.05 | 1 |
+
+- Chênh lệch v6 và v10 là **0.41 điểm**, nhỏ hơn rất nhiều so với độ nhiễu (cùng một file lệch tới 3 điểm). Bản thân v6 cũng có lần chỉ được 85.48. Trên public, hai bản **không phân biệt được**.
+- Theo quy tắc đã đặt trước (chênh dưới 1.5 điểm thì theo dev): **chọn v10**, vì trên dev v10 tốt hơn hoặc bằng v6.
+- **Đã đặt v10 làm mặc định của `MyPipeline`** để lệnh thi không đổi. Đã kiểm tra lại từ cache:
+  - train 0.9269, informal 0.9083;
+  - file public **giống hệt** `v10_public_test_submission.zip`.
+- **Phương án dự phòng:** `--pipeline neorag.pipelines.pipeline:MyPipelineV6`.
+- Có test khóa cấu hình bản thi: `test_exam_default_is_v10_and_v6_fallback_exists` (77/77 test đạt).
