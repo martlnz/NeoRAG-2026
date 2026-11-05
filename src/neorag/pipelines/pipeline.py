@@ -40,6 +40,9 @@ v10 (BẢN THI — mặc định của MyPipeline):
   - v6 + mẫu trả lời chung CHỈ cho câu hỏi có dấu (answer_templates="accented"); câu không dấu giữ prompt v6.
   - Dev: train 0.9269 / informal 0.9083 (v6: 0.9220 / 0.9083). Public TB: v10 87.02 (2 lần), v6 87.43 (3 lần) — trong nhiễu.
   - Dự phòng: class MyPipelineV6.
+v11 (class MyPipelineV11, KHÔNG phải mặc định):
+  - v10 + xếp lại id nộp trong cùng tập id của v10: id được cite lên đầu, phần còn lại theo cosine với đoạn được cite.
+  - Câu trả lời giữ nguyên v10. Dev (retrieval, --no-judge): train +0.0029, informal −0.0011 → ≈ +0.0005 benchmark, trong nhiễu.
 """
 
 from __future__ import annotations
@@ -200,8 +203,9 @@ class GatewayEmbedder:
 class MyPipeline(RAGPipeline):
     def __init__(
         self, top_k: int = 15, n_retrieved: int = 10, llm=None, embedder=None, fewshot_ids=(),
-        answer_templates: bool | str = "accented", parent_child: bool = False,
+        answer_templates: bool | str = "accented", parent_child: bool = False, cite_rerank: bool = False,
     ):
+        self.cite_rerank = cite_rerank
         # parent_child tắt mặc định: v8 thử bật và bị loại trên train_informal (experiments/update_v8.md).
         self.parent_child = parent_child
         # Few-shot tắt mặc định: v7 thử bật FEWSHOT_IDS và bị loại (xem experiments/update_v7.md).
@@ -220,6 +224,7 @@ class MyPipeline(RAGPipeline):
     def index(self, corpus: list[Document]) -> None:
         self.docs = corpus
         self.by_id = {d.id: d for d in corpus}
+        self.pos = {d.id: i for i, d in enumerate(corpus)}
         self.doc_vectors = self.embedder.embed([d.text for d in corpus])
         self.bm25 = BM25([bm25_tokens(f"{d.club} {d.topic} {d.text}") for d in corpus])
         # Parent-child: child = từng câu (đoạn danh sách tách thêm theo ";"), kèm header club|topic để
@@ -320,9 +325,28 @@ class MyPipeline(RAGPipeline):
         rewrites = self.rewrite(query)
         docs = self.retrieve(query, rewrites)
         answer, cited = self.generate(query, rewrites[0], docs)
-        # id được cite (có thể ở hạng 11-15 của context) lên đầu, rồi phần còn lại theo RRF; nộp tối đa 10.
-        ids = list(dict.fromkeys(cited + [d.id for d in docs[: self.n_retrieved]]))[: self.n_retrieved]
+        ids = self.order_ids(cited, docs)
         return RAGOutput(answer=answer or "Tài liệu hiện không có thông tin để trả lời câu hỏi này.", retrieved_ids=ids)
+
+    def order_ids(self, cited: list[int], docs: list[Document]) -> list[int]:
+        """Thứ tự id nộp (tối đa n_retrieved).
+
+        - Không có cite: giữ thứ tự RRF (như v10).
+        - v10: id được cite lên đầu, phần còn lại theo RRF.
+        - v11 (cite_rerank): id được cite lên đầu, phần còn lại (cùng tập id với v10) xếp theo cosine lớn nhất
+          với các đoạn được cite. relevant_ids thường gồm các đoạn trùng ý (vd. Phòng truyền thống và bài
+          tuyển thành viên) mà RRF hay để ở hạng 6-10. Câu trả lời không đổi.
+        """
+        if not cited or not self.cite_rerank:
+            return list(dict.fromkeys(cited + [d.id for d in docs[: self.n_retrieved]]))[: self.n_retrieved]
+        cited_vecs = self.doc_vectors[[self.pos[i] for i in cited]]
+        # Chỉ xếp lại TRONG tập id mà v10 nộp (cite + top-n RRF): giữ nguyên tập đoạn judge dùng chấm
+        # Groundedness. Kéo thêm đoạn hạng 11-15 vào từng làm Groundedness informal giảm 0.989 → 0.966.
+        base = list(dict.fromkeys(cited + [d.id for d in docs[: self.n_retrieved]]))[: self.n_retrieved]
+        rest = [i for i in base if i not in set(cited)]
+        sim = {i: float((cited_vecs @ self.doc_vectors[self.pos[i]]).max()) for i in rest}
+        rest.sort(key=lambda i: -sim[i])  # sort ổn định: hòa điểm giữ thứ tự RRF
+        return list(dict.fromkeys(cited + rest))[: self.n_retrieved]
 
 
 class MyPipelineV9(MyPipeline):
@@ -333,11 +357,12 @@ class MyPipelineV9(MyPipeline):
 
     def __init__(self, **kwargs):
         kwargs.setdefault("answer_templates", True)
+        kwargs.setdefault("cite_rerank", False)
         super().__init__(**kwargs)
 
 
 class MyPipelineV10(MyPipeline):
-    """v10: v6, nhưng câu hỏi CÓ DẤU dùng thêm mẫu trả lời chung (lợi trên train ở v9);
+    """v10 (không cite_rerank): v6, nhưng câu hỏi CÓ DẤU dùng thêm mẫu trả lời chung (lợi trên train ở v9);
     câu văn nói / không dấu giữ nguyên prompt v6 (mẫu chung gây hại trên train_informal và public).
 
     Chạy: neorag run <split> --pipeline neorag.pipelines.pipeline:MyPipelineV10
@@ -345,6 +370,7 @@ class MyPipelineV10(MyPipeline):
 
     def __init__(self, **kwargs):
         kwargs.setdefault("answer_templates", "accented")
+        kwargs.setdefault("cite_rerank", False)
         super().__init__(**kwargs)
 
 
@@ -356,4 +382,17 @@ class MyPipelineV6(MyPipeline):
 
     def __init__(self, **kwargs):
         kwargs.setdefault("answer_templates", False)
+        kwargs.setdefault("cite_rerank", False)
+        super().__init__(**kwargs)
+
+
+
+class MyPipelineV11(MyPipeline):
+    """v11: v10 + xếp lại id nộp theo đoạn được trích dẫn (chỉ trong tập id của v10). Câu trả lời = v10.
+
+    Chạy: neorag run public_test --pipeline neorag.pipelines.pipeline:MyPipelineV11
+    """
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("cite_rerank", True)
         super().__init__(**kwargs)

@@ -343,3 +343,58 @@ def test_exam_default_is_v10_and_v6_fallback_exists(corpus):
         p.index(corpus)
         p.run("CLB Lập Trình PTIT thành lập khi nào?")
         assert ("MẪU TRÌNH BÀY" in llm.calls[1][0]["content"]) is expect_templates
+
+
+# --------------------------------------------------------------------- v11
+class TableEmbedder(FakeEmbedder):
+    """Embedding cố định theo nội dung, để biết chính xác đoạn nào giống đoạn nào."""
+
+    TABLE = {"A": [1, 0, 0], "B": [0.9, 0.1, 0], "C": [0, 1, 0], "D": [0, 0, 1]}
+
+    def embed(self, texts):
+        out = []
+        for t in texts:
+            key = next((k for k in self.TABLE if t.startswith(k)), None)
+            out.append(self.TABLE[key] if key else [0.5, 0.5, 0.5])
+        v = np.asarray(out, dtype=np.float32)
+        return v / np.linalg.norm(v, axis=1, keepdims=True)
+
+
+def _v11_docs():
+    return [Document(i, "CLB Lập Trình PTIT", "t", f"{k} đoạn {k}") for i, k in enumerate("ABCD", start=1)]
+
+
+def test_v11_cited_first_then_most_similar():
+    from neorag.pipelines.pipeline import MyPipelineV11
+
+    p = MyPipelineV11(llm=make_llm("Q: x", "x\nNGUON: 1"), embedder=TableEmbedder())
+    p.index(_v11_docs())
+    docs = [p.by_id[i] for i in (3, 4, 1, 2)]  # thứ tự RRF giả định: C, D, A, B
+    assert p.order_ids([1], docs) == [1, 2, 3, 4]  # A được cite → B (giống A nhất) lên ngay sau
+
+
+def test_v11_without_citation_keeps_rrf_order_and_v10_unchanged():
+    from neorag.pipelines.pipeline import MyPipelineV10, MyPipelineV11
+
+    docs_ids = (3, 4, 1, 2)
+    p = MyPipelineV11(llm=make_llm("Q: x", "x"), embedder=TableEmbedder())
+    p.index(_v11_docs())
+    docs = [p.by_id[i] for i in docs_ids]
+    assert p.order_ids([], docs) == list(docs_ids)
+    v10 = MyPipelineV10(llm=make_llm("Q: x", "x"), embedder=TableEmbedder())
+    v10.index(_v11_docs())
+    assert v10.order_ids([1], [v10.by_id[i] for i in docs_ids]) == [1, 3, 4, 2]
+
+
+def test_v11_submits_same_id_set_as_v10():
+    """v11 chỉ đổi THỨ TỰ, không đổi TẬP id → context judge dùng chấm Groundedness không đổi."""
+    from neorag.pipelines.pipeline import MyPipelineV10, MyPipelineV11
+
+    docs = [Document(i, "CLB", "t", f"đoạn văn số {i} về chủ đề {i % 4}") for i in range(1, 21)]
+    a = MyPipelineV11(llm=make_llm("Q: x", "x"), embedder=FakeEmbedder())
+    b = MyPipelineV10(llm=make_llm("Q: x", "x"), embedder=FakeEmbedder())
+    a.index(docs)
+    b.index(docs)
+    ranked = a.retrieve("x", ["x"])
+    for cited in ([ranked[12].id], [ranked[0].id, ranked[5].id], []):
+        assert set(a.order_ids(cited, ranked)) == set(b.order_ids(cited, ranked))
