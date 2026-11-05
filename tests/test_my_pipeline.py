@@ -230,9 +230,19 @@ def test_fewshot_examples_built_from_train():
     assert build_examples(()) == ""
 
 
-def test_fewshot_block_is_in_answer_prompt_only(corpus):
+def test_fewshot_is_off_by_default(corpus):
     llm = make_llm("Q: x", "Trả lời.\nNGUON: 1")
     p = MyPipeline(llm=llm, embedder=FakeEmbedder())
+    p.index(corpus)
+    p.run("x")
+    assert "VÍ DỤ CÁCH TRÌNH BÀY" not in llm.calls[1][0]["content"]
+
+
+def test_fewshot_block_is_in_answer_prompt_only(corpus):
+    from neorag.pipelines.pipeline import FEWSHOT_IDS
+
+    llm = make_llm("Q: x", "Trả lời.\nNGUON: 1")
+    p = MyPipeline(llm=llm, embedder=FakeEmbedder(), fewshot_ids=FEWSHOT_IDS)
     p.index(corpus)
     p.run("x")
     rewrite_prompt, answer_prompt = llm.calls[0][0]["content"], llm.calls[1][0]["content"]
