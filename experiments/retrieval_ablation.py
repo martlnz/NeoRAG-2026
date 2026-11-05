@@ -43,7 +43,7 @@ def rrf(rankings: list[tuple[np.ndarray, float]], n: int) -> np.ndarray:
 
 
 class Ablation:
-    def __init__(self, rerank: bool, hyde: bool):
+    def __init__(self, rerank: bool, hyde: bool, m3: bool = False):
         self.p = MyPipeline()
         self.corpus = load_corpus()
         self.p.index(self.corpus)
@@ -63,6 +63,19 @@ class Ablation:
         self.chunk_bm25 = BM25([bm25_tokens(t) for t in chunk_texts])
         print(f"{len(self.corpus)} đoạn → {len(chunk_texts)} chunk câu")
         self.hyde = hyde
+        self.m3 = None
+        if m3:
+            # bge-m3 local: multi-vector (ColBERT, MaxSim theo token) + sparse (trọng số từ vựng học được).
+            from FlagEmbedding import BGEM3FlagModel
+
+            self.m3 = BGEM3FlagModel("BAAI/bge-m3", use_fp16=False)
+            enc = self.m3.encode(
+                [d.text for d in self.corpus], batch_size=8, max_length=512,
+                return_dense=False, return_sparse=True, return_colbert_vecs=True,
+            )
+            self.m3_doc_colbert = enc["colbert_vecs"]
+            self.m3_doc_sparse = enc["lexical_weights"]
+            print("bge-m3 local: đã encode multi-vector + sparse cho", len(self.corpus), "đoạn")
         self.reranker = None
         if rerank:
             from sentence_transformers import CrossEncoder
@@ -111,6 +124,21 @@ class Ablation:
             "dense trên header club|topic": fuse(doc_vecs=self.header_vectors),
             "base + dense header (cả hai)": fuse(extra=[(self.header_vectors @ vecs[q], w) for q, w, ok in qs if ok]),
         }
+        if self.m3 is not None:
+            q_texts = [q for q, _, _ in qs]
+            qenc = self.m3.encode(q_texts, max_length=128, return_dense=False, return_sparse=True,
+                                  return_colbert_vecs=True)
+            colbert_parts, sparse_parts = [], []
+            for (_, w, _), qc, qs_ in zip(qs, qenc["colbert_vecs"], qenc["lexical_weights"], strict=True):
+                colbert_parts.append((np.array([float(self.m3.colbert_score(qc, dc)) for dc in self.m3_doc_colbert]), w))
+                sparse_parts.append((np.array([float(self.m3.compute_lexical_matching_score(qs_, ds))
+                                               for ds in self.m3_doc_sparse]), w))
+            child = chunk_parts()
+            out["v8 (base + child)"] = fuse(extra=child)
+            out["v8 + m3 multi-vector"] = fuse(extra=child + colbert_parts)
+            out["v8 + m3 sparse"] = fuse(extra=child + sparse_parts)
+            out["v8 + m3 multi-vector + sparse"] = fuse(extra=child + colbert_parts + sparse_parts)
+            out["m3 multi-vector only"] = rrf(colbert_parts, n)
         if self.hyde:
             fake = p.llm.chat([{"role": "user", "content": HYDE_PROMPT.format(query=rewrites[0])}], model=p.llm_model)
             hv = p.embedder.embed([fake])[0]
@@ -153,8 +181,10 @@ def main() -> None:
     ap.add_argument("--splits", nargs="+", default=["train", "train_informal"])
     ap.add_argument("--rerank", action="store_true", help="cross-encoder bge-reranker-v2-m3 (local)")
     ap.add_argument("--hyde", action="store_true", help="HyDE: +1 lời gọi Haiku/câu (có cache)")
+    ap.add_argument("--m3", action="store_true", help="bge-m3 local: multi-vector (ColBERT) + sparse")
+    ap.add_argument("--only-m3", action="store_true", help="chỉ in các biến thể v8/m3")
     args = ap.parse_args()
-    ab = Ablation(rerank=args.rerank, hyde=args.hyde)
+    ab = Ablation(rerank=args.rerank, hyde=args.hyde, m3=args.m3 or args.only_m3)
     for split in args.splits:
         ab.evaluate(split)
 
