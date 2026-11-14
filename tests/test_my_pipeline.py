@@ -398,3 +398,171 @@ def test_v11_submits_same_id_set_as_v10():
     ranked = a.retrieve("x", ["x"])
     for cited in ([ranked[12].id], [ranked[0].id, ranked[5].id], []):
         assert set(a.order_ids(cited, ranked)) == set(b.order_ids(cited, ranked))
+
+
+# --------------------------------------------------------------------- v12
+def _v12_llm(answer: str, evidence: str = "ID:", fix: str = "GIỮ") -> FakeLLM:
+    def respond(m):
+        c = m[0]["content"]
+        if "TÀI LIỆU:" in c:
+            return answer
+        if c.startswith("Câu hỏi:") and "Liệt kê id" in c:
+            return evidence
+        if "Bản nháp:" in c:
+            return fix
+        return "Q: x"
+
+    return FakeLLM(respond)
+
+
+def test_v12_pc_filler_cited_first_then_pc_rank_plus_cosine():
+    from neorag.pipelines.pipeline import MyPipelineV12
+
+    p = MyPipelineV12(llm=_v12_llm("x"), embedder=TableEmbedder())
+    p.index(_v11_docs())
+    docs = [p.by_id[i] for i in (3, 4, 1, 2)]  # tập id v10: C, D, A, B
+    pc = np.array([0.1, 0.2, 0.9, 0.5], dtype=np.float32)  # hạng parent-child: C(3), D(4), B(2), A(1)
+    # Không cite → theo hạng parent-child.
+    assert p.order_ids_pc([], docs, pc) == [3, 4, 2, 1]
+    # Cite A: C (hạng 1 parent-child: 1/1) vẫn đầu; B (1/3 + 0.5·cos≈0.99) vượt D (1/2 + 0).
+    assert p.order_ids_pc([1], docs, pc) == [1, 3, 2, 4]
+    # Bằng chứng (evidence) lên ngay sau id được cite; id ngoài tập v10 bị bỏ qua.
+    assert p.order_ids_pc([1], docs, pc, evidence=[4, 99]) == [1, 4, 3, 2]
+
+
+def test_v12_same_answer_and_id_set_as_v10_and_main_retrieval_unchanged():
+    from neorag.pipelines.pipeline import MyPipelineV10, MyPipelineV12
+
+    docs = [Document(i, "CLB", "t", f"đoạn văn số {i} về chủ đề {i % 4}. Câu thứ hai dài hơn {i}.")
+            for i in range(1, 21)]
+    a = MyPipelineV12(llm=_v12_llm("Trả lời.\nNGUON: 5", evidence="ID: 7, 5, 999"), embedder=FakeEmbedder())
+    b = MyPipelineV10(llm=_v12_llm("Trả lời.\nNGUON: 5"), embedder=FakeEmbedder())
+    a.index(docs)
+    b.index(docs)
+    assert [d.id for d in a.retrieve("x", ["x"])] == [d.id for d in b.retrieve("x", ["x"])]
+    ra, rb = a.run("đoạn văn số 5"), b.run("đoạn văn số 5")
+    assert ra.answer == rb.answer
+    assert set(ra.retrieved_ids) == set(rb.retrieved_ids)
+    assert ra.retrieved_ids[0] == 5
+    if 7 in rb.retrieved_ids:
+        assert ra.retrieved_ids[1] == 7
+
+
+def test_v12_evidence_call_skipped_without_citation():
+    from neorag.pipelines.pipeline import MyPipelineV12
+
+    llm = _v12_llm("Tài liệu hiện không có thông tin về X.")
+    p = MyPipelineV12(llm=llm, embedder=FakeEmbedder())
+    p.index(_v11_docs())
+    p.run("x")
+    assert not any("Liệt kê id" in c[0]["content"] for c in llm.calls)
+
+
+def test_answer_first_fix_off_by_default_and_gated():
+    from neorag.pipelines.pipeline import MyPipelineV12
+
+    assert MyPipeline(llm=FakeLLM(), embedder=FakeEmbedder()).answer_first_fix is False
+    assert MyPipelineV12(llm=FakeLLM(), embedder=FakeEmbedder()).answer_first_fix is False
+    llm = _v12_llm("x", fix="Đợt tuyển chưa mở.")
+    p = MyPipeline(llm=llm, embedder=FakeEmbedder(), answer_first_fix=True)
+    p.index(_v11_docs())
+    docs = list(p.docs)
+    # Không mở đầu bằng từ chối → không gọi LLM.
+    assert p.fix_refusal_opener("q", "Có, CLB có.", [1], docs) == "Có, CLB có."
+    # Từ chối không có câu "Tài liệu chỉ nêu" → giữ nguyên.
+    refusal = "Tài liệu hiện không có thông tin về X."
+    assert p.fix_refusal_opener("q", refusal, [1], docs) == refusal
+    assert llm.calls == []
+    draft = "Tài liệu hiện không có thông tin về lịch. Tài liệu chỉ nêu đợt tuyển chưa mở."
+    assert p.fix_refusal_opener("q", draft, [1], docs) == "Đợt tuyển chưa mở."
+    keep = MyPipeline(llm=_v12_llm("x", fix="GIỮ"), embedder=FakeEmbedder(), answer_first_fix=True)
+    assert keep.fix_refusal_opener("q", draft, [1], docs) == draft
+
+
+# ---------------------------------------------------------------- v11-audit
+def _audit_llm(rewrite: str, draft: str, audit_out: str) -> FakeLLM:
+    def respond(m):
+        c = m[0]["content"]
+        if "BẢN NHÁP:" in c:
+            return audit_out
+        if "TÀI LIỆU:" in c:
+            return draft
+        return rewrite
+
+    return FakeLLM(respond)
+
+
+def test_v11_audit_loadable_via_cli_spec():
+    from neorag.pipelines.pipeline import MyPipelineV11Audit
+
+    p = load_pipeline(
+        "neorag.pipelines.pipeline:MyPipelineV11Audit", llm=FakeLLM(), embedder=FakeEmbedder()
+    )
+    assert isinstance(p, MyPipelineV11Audit) and isinstance(p, RAGPipeline)
+
+
+def test_v11_audit_keeps_draft_and_id_pool_when_giu(corpus):
+    from neorag.pipelines.pipeline import MyPipelineV11, MyPipelineV11Audit
+
+    draft = "CLB Lập Trình PTIT được thành lập ngày 09/10/2011.\nNGUON: 1"
+    p_audit = MyPipelineV11Audit(
+        llm=_audit_llm("Q: CLB thành lập khi nào?", draft, "TRA_LOI: GIỮ\nNGUON: 1"),
+        embedder=TableEmbedder(),
+    )
+    p_v11 = MyPipelineV11(
+        llm=make_llm("Q: CLB thành lập khi nào?", draft),
+        embedder=TableEmbedder(),
+    )
+    p_audit.index(corpus)
+    p_v11.index(corpus)
+    assert [d.id for d in p_audit.retrieve("clb thanh lap khi nao", ["CLB thành lập khi nào?"])] == [
+        d.id for d in p_v11.retrieve("clb thanh lap khi nao", ["CLB thành lập khi nào?"])
+    ]
+    out_a = p_audit.run("clb thanh lap khi nao")
+    out_11 = p_v11.run("clb thanh lap khi nao")
+    assert out_a.answer == out_11.answer
+    assert set(out_a.retrieved_ids) == set(out_11.retrieved_ids)
+
+
+def test_v11_audit_fixes_draft_and_promotes_sibling_citation():
+    from neorag.pipelines.pipeline import MyPipelineV11Audit
+
+    docs = [
+        Document(i, "CLB Lập Trình PTIT", "Khác", f"đoạn văn phụ số {i} dài hơn mười lăm ký tự.")
+        for i in range(1, 18)
+    ] + [
+        Document(18, "CLB Lập Trình PTIT", "Giải thưởng", "Giải Nhì AICOVIDVN-115M Challenge năm 2021."),
+        Document(19, "CLB Lập Trình PTIT", "Giải thưởng", "Giải Nhì Kalapa Challenge Medical Question Answering 2023."),
+    ]
+    llm = _audit_llm(
+        "Q: CLB đạt giải y tế nào?",
+        "Có, CLB Lập Trình PTIT đạt Giải Nhì AICOVIDVN-115M Challenge.\nNGUON: 18",
+        "TRA_LOI: Có, CLB Lập Trình PTIT đạt Giải Nhì AICOVIDVN-115M Challenge và Giải Nhì Kalapa Challenge Medical Question Answering 2023.\nNGUON: 18, 19",
+    )
+    p = MyPipelineV11Audit(llm=llm, embedder=FakeEmbedder())
+    p.index(docs)
+    # Giả lập retrieve trả 15 đoạn có 18 nhưng thiếu 19 → _build_audit_docs kéo 19 vào nhờ cùng (club, topic)
+    audit_docs = p._build_audit_docs("y te", ["CLB đạt giải y tế nào?"], docs[:14] + [docs[17]], [18])
+    assert 19 in {d.id for d in audit_docs}
+    ans, cited = p.audit("y te", "CLB đạt giải y tế nào?", audit_docs, "Nháp.", [18])
+    assert "Kalapa Challenge" in ans and cited == [18, 19]
+
+
+def test_v11_audit_api_error_and_placeholder_guard_fallback_to_draft(corpus):
+    from neorag.pipelines.pipeline import MyPipelineV11Audit
+
+    def broken_audit(m):
+        c = m[0]["content"]
+        if "BẢN NHÁP:" in c:
+            raise RuntimeError("gateway timeout")
+        if "TÀI LIỆU:" in c:
+            return "Bản nháp chuẩn.\nNGUON: 1"
+        return "Q: x"
+
+    p = MyPipelineV11Audit(llm=FakeLLM(broken_audit), embedder=FakeEmbedder())
+    p.index(corpus)
+    assert p.run("x").answer == "Bản nháp chuẩn."
+
+    # Sót <...> trong câu trả lời audit → giữ nguyên bản nháp
+    ans, cited = p._parse_audit("TRA_LOI: Theo <nguồn kèm thời gian>, CLB A.\nNGUON: 2", corpus, "Nháp gốc.", [1])
+    assert ans == "Nháp gốc." and cited == [2]

@@ -78,6 +78,12 @@ class LLMClient:
         key = _key("chat", self._endpoint, model, temperature, messages)
         if self._cache and (hit := self._cache.get(key)) is not None:
             return hit
+        if self._cache:
+            for legacy_ep in ("https://proptit.dekthe.dev/v1/", "https://proptit.dekthe.dev/v1"):
+                legacy_key = _key("chat", legacy_ep, "claude-haiku-5-5", temperature, messages)
+                if (hit := self._cache.get(legacy_key)) is not None:
+                    self._cache.set(key, hit)
+                    return hit
         extra = {} if temperature is None else {"temperature": temperature}
         resp = self._client.chat.completions.create(model=model, messages=messages, **extra)
         text = (resp.choices[0].message.content or "").strip()
@@ -95,8 +101,30 @@ class LLMClient:
         key = _key("embed", self._endpoint, model, texts)
         if self._cache and (hit := self._cache.get(key)) is not None:
             return json.loads(hit)
-        resp = self._client.embeddings.create(model=model, input=texts, encoding_format="float")
-        vectors = [d.embedding for d in sorted(resp.data, key=lambda d: d.index)]
+        if self._cache:
+            for legacy_ep in ("https://proptit.dekthe.dev/v1/", "https://proptit.dekthe.dev/v1"):
+                legacy_key = _key("embed", legacy_ep, "bge-m3", texts)
+                if (hit := self._cache.get(legacy_key)) is not None:
+                    self._cache.set(key, hit)
+                    return json.loads(hit)
+        if "proptit.dekthe.dev" not in self._endpoint:
+            os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+            from neorag.embeddings import LocalEmbedder
+
+            local_model = "BAAI/bge-m3" if "bge-m3" in model.lower() else model
+            embedder = LocalEmbedder(local_model, batch_size=batch_size)
+            vectors = embedder.embed(texts).tolist()
+        else:
+            try:
+                resp = self._client.embeddings.create(model=model, input=texts, encoding_format="float")
+                vectors = [d.embedding for d in sorted(resp.data, key=lambda d: d.index)]
+            except Exception:
+                from neorag.embeddings import LocalEmbedder
+
+                local_model = "BAAI/bge-m3" if "bge-m3" in model.lower() else model
+                embedder = LocalEmbedder(local_model, batch_size=batch_size)
+                vectors = embedder.embed(texts).tolist()
         if self._cache:
             self._cache.set(key, json.dumps(vectors))
         return vectors
