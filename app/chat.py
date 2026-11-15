@@ -1,7 +1,4 @@
 """Chatbot cho phần Demo Product NeoRAG - S2B Community (PTIT).
-
-Mặc định sử dụng pipeline RAG tối ưu điểm cao nhất (MyPipelineV11Audit).
-Hỗ trợ quản lý đa phiên chat (Multi-session History), Streaming mượt mà và giao diện tối giản.
 Chạy: python -m streamlit run app/chat.py
 """
 
