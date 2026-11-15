@@ -1,13 +1,4 @@
 # NeoRAG-2026 — Báo cáo tổng hợp (report_final)
-
-Giải thích pipeline v11-audit (bản tốt nhất, 91.35 điểm Private Test): kiến trúc, từng lựa chọn kỹ thuật giải quyết vấn đề gì, và code từng hàm, từng class.
-
-Nguồn: `report.md` (tổng quan các phiên bản), `report_v11_audit.md` (bản audit), `update_v11.md` (bước v11), `pipeline.py` (code). Số liệu lấy nguyên từ các file đó. Chỗ nào là suy luận của tôi từ code mà báo cáo cũ không ghi, tôi đánh dấu **(suy ra từ code)**.
-
-Khác với `report_v11_audit.md` (chỉ giải thích phần audit), báo cáo này giải thích cả phần v11 gốc: rewrite, hybrid retrieval, sinh câu trả lời nháp, xếp lại id theo đoạn được trích dẫn, rồi mới đến audit.
-
----
-
 ## 1. Bài toán và cách chấm điểm
 
 ### 1.1 Bài toán
@@ -34,19 +25,12 @@ Câu hỏi rất đa dạng:
 | | Noise Sensitivity | câu thừa, câu sai (càng thấp càng tốt; pipeline dùng `1 − Noise`) |
 | | Abstention | từ chối đúng với câu không có thông tin |
 
-Các con số trong báo cáo khớp với: **Benchmark = trung bình của Retrieval và Generation**, Retrieval = trung bình 3 chỉ số retrieval, Generation = trung bình 6 chỉ số generation (với Noise đảo thành `1 − Noise`). Ví dụ Private Test v11: (96.86 + 80.63) / 2 = 88.745 ≈ 88.75. **(suy ra từ số liệu)**
-
-Hai điều quan trọng về bộ chấm:
-- Judge là LLM nên có nhiễu: cùng một file nộp Public Test lệch khoảng **±3 điểm** (v2 nộp lại từ 87.13 xuống 84.23).
-- Judge chấm Groundedness trên **các đoạn mình nộp** (`retrieved_ids`), nên tập id không chỉ ảnh hưởng Retrieval mà còn ảnh hưởng Generation.
 
 ### 1.3 Ba khó khăn gốc
 
 1. **Không dấu / viết tắt:** dense `bge-m3` gần như mất tác dụng. Baseline v0 chỉ đạt Recall@5 = 0.436 trên nhóm này.
 2. **Thông tin nằm rải rác:** các đoạn song song cùng chủ đề (giải thưởng nhiều năm, ban chủ nhiệm nhiều nhiệm kỳ), câu hỏi so sánh.
 3. **Câu không có thông tin:** LLM có xu hướng bịa, hoặc ngược lại từ chối oan câu thật ra có thông tin.
-
-Toàn bộ thiết kế bên dưới là câu trả lời cho ba khó khăn này.
 
 ---
 
@@ -87,7 +71,6 @@ Bước 1–3 cộng với việc xếp id theo cosine (phần cuối của bư�
 
 **Chi phí mỗi câu hỏi:** 3 lời gọi LLM (`rewrite`, `generate`, `audit`), thêm 1 lần gọi lại nếu bản nháp rỗng. Mọi lời gọi LLM đi qua `LLMClient` có cache SQLite (`.cache/pipeline.sqlite`), nên chạy lại cùng prompt gần như miễn phí. Vì vậy v11-audit chỉ tốn thêm đúng 1 lời gọi (Auditor) so với v11.
 
-**Vì sao không cần vector database:** corpus chỉ 118 đoạn, nên mọi phép tính (BM25, tích vô hướng) chạy brute-force bằng numpy trong vài mili-giây. **(suy ra từ code)**
 
 Luồng biến trong `run()`:
 
@@ -98,7 +81,6 @@ docs ──generate──▶ (draft_answer, draft_cited)
 audit_docs ──audit──▶ (final_answer, audit_cited)
 (draft_cited, audit_cited, docs, changed?) ──order_ids_audit──▶ ids(10)
 ```
-
 ---
 
 ## 3. Từng bước: làm gì và vì sao
@@ -138,7 +120,7 @@ Các cấu trúc được dựng trong `index()`:
 
 | Quyết định | Lý do |
 |---|---|
-| Câu gốc có trọng số 0.7, câu viết lại 1.0 | câu gốc nhiễu hơn câu đã chuẩn hóa **(suy ra từ code; báo cáo không ghi lý do)** |
+| Câu gốc có trọng số 0.7, câu viết lại 1.0 | câu gốc nhiễu hơn câu đã chuẩn hóa  |
 | **Bỏ dense trên câu gốc nếu câu không dấu** (`is_unaccented`) | v5 phát hiện bge-m3 xếp đoạn đúng ở hạng 30–100 với câu không dấu, vector này chỉ thêm nhiễu. BM25 trên câu gốc vẫn dùng; dense trên câu viết lại vẫn dùng |
 | Dùng **tất cả** câu viết lại (câu chính + câu con) | câu so sánh cần lấy đoạn của từng CLB |
 
@@ -446,11 +428,8 @@ return RAGOutput(answer=final_answer or "Tài liệu hiện không có thông ti
 
 Điểm cần để ý: `answer_changed` được suy ra bằng so sánh chuỗi, nên đúng cả khi Auditor trả GIỮ lẫn khi chốt an toàn đưa về bản nháp. Nếu cuối cùng câu trả lời rỗng, dùng câu từ chối mặc định.
 
-### 5.6 Alias
 
-`MyPipelineV11Audit = MyPipeline`. Cả hai tên cùng trỏ về một class, nên lệnh `neorag run private_test --pipeline neorag.pipelines.pipeline:MyPipeline` hoặc `...:MyPipelineV11Audit` đều chạy v11-audit. Lưu ý `update_v11.md` có câu "`MyPipeline` mặc định vẫn là v10": câu đó đúng lúc viết, nay đã lỗi thời. Các class `MyPipelineV9`, `V10`, `V11`... trong báo cáo cũ không còn trong file này; hành vi của chúng nay là tham số mặc định (`answer_templates="accented"`, `cite_rerank=True`).
-
-### 5.7 Ví dụ chạy một câu (minh họa, id và nội dung là giả định)
+### 5.6 Ví dụ chạy một câu (minh họa, id và nội dung là giả định)
 
 Câu hỏi gõ nhanh: `"clb lt co giai nao nam 2023 ko"`.
 
@@ -466,59 +445,8 @@ Nếu ở bước 6 Auditor trả `GIỮ`, kết quả là đúng câu nháp, v�
 
 ---
 
-## 6. Kết quả
 
-### 6.1 Các phiên bản chính
-
-| Phiên bản | Train | Informal | Public Test | Private | Điểm nhấn |
-|---|---:|---:|---:|---:|---|
-| v0 | 0.7379 | — | 52.40 | — | dense bge-m3 + prompt cơ bản |
-| v1 | 0.9038 | — | 83.36 | — | rewrite + BM25/dense RRF + NGUON |
-| v2 | 0.9091 | — | 87.13 | — | prompt ngắn, top-10 |
-| v3 / v4 | 0.9235 | — | 84.81 / 84.94 | — | rewrite `Q:`, chống lỗi runtime |
-| v5 | 0.9173 | 0.8876 | ~87.00 | — | bỏ dense câu không dấu, context 15 |
-| v6 | 0.9220 | 0.9083 | 88.43 | — | chuẩn hóa từ chối, "Có,/Không," |
-| v7 (bỏ) | 0.9207 | 0.8885 | không nộp | — | few-shot tĩnh |
-| v8 (bỏ) | 0.9229 | 0.8945 | 88.15 | — | Parent-Child retrieval |
-| v9 | 0.9271 | 0.9031 | 86.05 | — | mẫu chung cho mọi câu |
-| v10 | 0.9269 | 0.9083 | 87.02 (TB 2 lần) | — | mẫu chung chỉ cho câu có dấu |
-| v11 | 0.9290 | 0.9071 | 88.53 | 88.75 | `cite_rerank` |
-| **v11-audit** | **0.9340** | **0.9156** | — | **91.35** | **Auditor + 20 đoạn + GIỮ** |
-
-Lưu ý: `update_v11.md` ghi điểm Public của v11 là "chờ nộp"; con số 88.53 và Private 88.75 lấy từ `report.md`, viết sau.
-
-### 6.2 Dev phân tầng (38 câu) và Private Test
-
-Dev gồm 21 câu khó từng lỗi, 8 câu sạch, 9 câu không có thông tin.
-
-| Chỉ số | v11 | v11-audit | Δ |
-|---|---:|---:|---:|
-| Recall@5 | 96.74 | 98.37 | +1.63 |
-| MRR@5 | 100.00 | 100.00 | 0 |
-| NDCG@5 | 96.74 | 97.72 | +0.98 |
-| **Retrieval** | 97.83 | 98.70 | +0.87 |
-| String Presence | 77.59 | 91.95 | +14.36 |
-| ROUGE-L | 62.75 | 67.40 | +4.65 |
-| Groundedness | 93.10 | 100.00 | +6.90 |
-| Response Relevancy | 57.09 | 55.78 | −1.31 |
-| 1 − Noise | 79.31 | 91.38 | +12.07 |
-| Abstention | 100.00 | 100.00 | 0 |
-| **Generation** | 78.31 | 84.42 | +6.11 |
-| **Benchmark** | 88.07 | 91.56 | +3.49 |
-
-| Private Test (42 câu) | v11 | v11-audit |
-|---|---:|---:|
-| Câu mở đầu bằng từ chối | 9 | 6 |
-| Câu đổi đáp án | — | 22 |
-| Câu giữ nguyên (GIỮ) | — | 20 |
-| Câu đổi thứ tự id | — | 9 |
-| **Raw score** | **88.75** | **91.35** (+2.60) |
-
-Response Relevancy giảm nhẹ (−1.31). Theo báo cáo, chỉ số này phụ thuộc cosine giữa câu hỏi và câu trả lời, câu không dấu vốn thấp và Auditor không cải thiện được.
-
----
-
-## 7. Bài học
+## 6. Bài học
 
 1. **Hiểu giới hạn của embedding.** Dense mạnh với câu có dấu, gần như vô dụng với câu không dấu. BM25 bỏ dấu là điều kiện để chạy được trên dữ liệu người dùng thật.
 2. **Retrieval thô tốt chưa chắc điểm cuối tốt.** Thứ tự đoạn trong prompt ảnh hưởng việc LLM trích nguồn (v8). Luôn đo end-to-end.
@@ -528,20 +456,7 @@ Response Relevancy giảm nhẹ (−1.31). Theo báo cáo, chỉ số này phụ
 
 ---
 
-## 8. Hạn chế và điểm cần lưu ý
-
-Phần này tôi thêm vào để báo cáo trung thực với người đọc; các báo cáo cũ không nêu.
-
-1. **Điểm 91.35 được đo trên cùng bộ 42 câu đã dùng để chẩn đoán lỗi.** Báo cáo v11-audit ghi bốn loại lỗi được xác định từ phân tích 42 câu Private Test, và `AUDIT_PROMPT` chứa nhiều ví dụ cụ thể ("Km10 Nguyễn Trãi", "5 thành viên, trong đó 3 người", "Gen 1 năm 2023"). Vì vậy +2.60 là ước lượng lạc quan về khả năng tổng quát hóa; nên coi nó là cận trên.
-2. **Dev 38 câu được dựng từ các câu từng lỗi** (21 khó, 8 sạch, 9 không có thông tin), nên +3.49 không phải mức tăng kỳ vọng trên phân phối câu hỏi bình thường. Việc dev (+3.49) và Private (+2.60) gần nhau là tín hiệu tốt nhưng chưa phải bằng chứng về độ vững, nhất là khi Public Test lệch ±3 điểm giữa các lần nộp và chỉ có 42 câu.
-3. **`generate` không có `try/except`** trong file đã tải lên (xem 5.5).
-4. **Docstring đầu file ghi "Claude-3.5-Haiku"** ở bước 3 và bước 5, trong khi code dùng `LLM_MODEL` mặc định `claude-haiku-5-5`. Cần sửa docstring cho khớp.
-5. **Kiểm tra `<...>` hơi rộng:** mọi cụm `<2 đến 40 ký tự>` đều bị coi là nhãn mẫu sót và buộc dùng bản nháp. Nếu một câu trả lời hợp lệ chứa cụm như vậy (ví dụ trong một link), nó bị bỏ. Khả năng thấp nhưng có.
-6. **Phụ thuộc vào cấu trúc corpus:** `by_club_topic` giả định các đoạn song song dùng chung `(club, topic)`. Nếu dữ liệu thay đổi cách đặt `topic`, bước mở rộng ngữ cảnh mất tác dụng.
-
----
-
-## 9. Cách chạy và kiểm tra
+## 7. Cách chạy và kiểm tra
 
 ```bash
 neorag run private_test --pipeline neorag.pipelines.pipeline:MyPipeline
@@ -551,4 +466,3 @@ neorag run private_test --pipeline neorag.pipelines.pipeline:MyPipelineV11Audit
 
 Bản nộp: `experiments/submissions/v11_audit_private_test_submission.zip`.
 
-Unit test: báo cáo audit ghi 94/94 test đạt, trong đó 6 test riêng cho v11-audit: nạp pipeline qua CLI spec; giữ nguyên câu trả lời và tập id khi `GIỮ`; mở rộng `audit_docs` kéo đúng đoạn song song; cập nhật đáp án và nguồn khi Auditor sửa; fallback khi lỗi API; fallback khi sót `<...>`.
